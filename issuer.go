@@ -56,6 +56,14 @@ func NewIssuer(cfg IssuerConfig, keyManager *KeyManager) (*Issuer, error) {
 	}, nil
 }
 
+func (i *Issuer) Issuer() string {
+	return i.issuer
+}
+
+func (i *Issuer) SecretManager() *SecretManager {
+	return i.secretManager
+}
+
 // IssuerRequest 包含生成 Token 所需的上下文信息
 type IssuerRequest struct {
 	ClientID BinaryUUID

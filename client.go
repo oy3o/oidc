@@ -2,7 +2,6 @@ package oidc
 
 import (
 	"context"
-	"crypto"
 	"crypto/ecdsa"
 	"crypto/rsa"
 	"fmt"
@@ -32,7 +31,7 @@ type Client struct {
 	discovery  *Discovery
 
 	// DPoP 签名密钥 (可选)
-	dpopKey crypto.PrivateKey
+	dpopKey Key
 
 	// ID Token 验证器
 	verifier *ClientVerifier
@@ -83,7 +82,7 @@ func WithPKCE(codeChallenge, codeChallengeMethod string) AuthCodeOption {
 
 // WithDPoP 启用 DPoP 支持
 // 传入客户端的私钥 (建议使用 ECDSA P-256)，后续请求将自动附带 DPoP Proof
-func (c *Client) WithDPoP(key crypto.PrivateKey) *Client {
+func (c *Client) WithDPoP(key Key) *Client {
 	c.dpopKey = key
 	return c
 }
@@ -524,17 +523,7 @@ func (c *Client) applyDPoP(req *http.Request) error {
 	}
 
 	// 确定 jwk
-	// 这里我们需要从 crypto.PrivateKey 导出公钥并转成 map
-	// 为了简化，假设是 ECDSA 或 RSA
-	var pubKey crypto.PublicKey
-	switch k := c.dpopKey.(type) {
-	case *ecdsa.PrivateKey:
-		pubKey = k.Public()
-	case *rsa.PrivateKey:
-		pubKey = k.Public()
-	default:
-		return fmt.Errorf("oidc: unsupported dpop key type")
-	}
+	pubKey := c.dpopKey.Public()
 
 	// 转换为 JWK
 	// 注意：DPoP 要求 JWK 不包含 kid, alg 等，只包含 key 参数
@@ -559,7 +548,7 @@ func (c *Client) applyDPoP(req *http.Request) error {
 	jti := uuid.New().String()
 
 	// RFC 9449: htu 不包含 query 和 fragment
-	htu := buildRequestURI(req)
+	htu := BuildRequestURI(req)
 
 	claims := jwt.MapClaims{
 		"htm": req.Method,

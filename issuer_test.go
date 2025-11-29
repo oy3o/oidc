@@ -1,4 +1,4 @@
-package oidc
+package oidc_test
 
 import (
 	"context"
@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/oy3o/oidc"
 )
 
 func TestConcurrent_TokenIssuance(t *testing.T) {
@@ -17,7 +18,7 @@ func TestConcurrent_TokenIssuance(t *testing.T) {
 
 	server, _, client := setupExchangeTest(t)
 	ctx := context.Background()
-	userID := BinaryUUID(uuid.New())
+	userID := oidc.BinaryUUID(uuid.New())
 
 	const concurrency = 100
 	errCh := make(chan error, concurrency)
@@ -29,7 +30,7 @@ func TestConcurrent_TokenIssuance(t *testing.T) {
 		go func(idx int) {
 			defer wg.Done()
 
-			req := &IssuerRequest{
+			req := &oidc.IssuerRequest{
 				ClientID: client.GetID(),
 				UserID:   userID,
 				Scopes:   "openid",
@@ -38,7 +39,7 @@ func TestConcurrent_TokenIssuance(t *testing.T) {
 			}
 
 			// 直接调用 Issuer 核心逻辑
-			_, err := server.issuer.IssueOIDCTokens(ctx, req)
+			_, err := server.Issuer().IssueOIDCTokens(ctx, req)
 			if err != nil {
 				errCh <- err
 			}

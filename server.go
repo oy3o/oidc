@@ -95,7 +95,7 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 	}
 
 	// 3. 初始化基础组件
-	km := NewKeyManager(cfg.Storage)
+	km := NewKeyManager(cfg.Storage, 0)
 
 	sm := cfg.SecretManager
 	if sm == nil {
@@ -139,6 +139,15 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 // ---------------------------------------------------------------------------
 // Component Accessors (Getters)
 // ---------------------------------------------------------------------------
+
+func (s *Server) Config() *ServerConfig {
+	return &s.cfg
+}
+
+// Issuer 返回 Issuer，用于生成 Token。
+func (s *Server) Issuer() *Issuer {
+	return s.issuer
+}
 
 // KeyManager 返回密钥管理器，用于添加、删除密钥或导出 JWKS。
 func (s *Server) KeyManager() *KeyManager {
@@ -207,12 +216,12 @@ func (s *Server) RequestAuthorize(ctx context.Context, req *AuthorizeRequest) (c
 	return
 }
 
-// ResponseAuthorized 用户同意后生成 Code
-func (s *Server) ResponseAuthorized(ctx context.Context, req *AuthorizeRequest) (code string, err error) {
+// ResponseAuthorized 用户同意后生成重定向URL
+func (s *Server) ResponseAuthorized(ctx context.Context, req *AuthorizeRequest) (redirectURL string, err error) {
 	err = o11y.Run(ctx, "oidc.ResponseAuthorized", func(ctx context.Context, state o11y.State) error {
 		state.SetAttributes(attribute.String("client_id", req.ClientID))
 		state.SetAttributes(attribute.String("user_id", req.UserID))
-		code, err = ResponseAuthorized(ctx, s.storage, req, s.cfg.CodeTTL)
+		redirectURL, err = ResponseAuthorized(ctx, s.storage, req, s.cfg.CodeTTL)
 		return err
 	})
 	return
@@ -241,19 +250,18 @@ func (s *Server) Exchange(ctx context.Context, req *TokenRequest) (resp *IssuerR
 		if req.DPoPJKT == "" {
 			req.DPoPJKT = ExtractDPoPJKT(ctx)
 		}
-		currentIssuer := s.issuer
 
 		switch req.GrantType {
 		case GrantTypeAuthorizationCode:
-			resp, err = ExchangeCode(ctx, s.storage, s.hasher, currentIssuer, req)
+			resp, err = ExchangeCode(ctx, s.storage, s.hasher, s.issuer, req)
 		case GrantTypeRefreshToken:
-			resp, err = RefreshTokens(ctx, s.storage, s.secretManager, s.hasher, currentIssuer, req)
+			resp, err = RefreshTokens(ctx, s.storage, s.secretManager, s.hasher, s.issuer, req)
 		case GrantTypeDeviceCode:
-			resp, err = DeviceTokenExchange(ctx, s.storage, currentIssuer, req)
+			resp, err = DeviceTokenExchange(ctx, s.storage, s.issuer, req)
 		case GrantTypeClientCredentials:
-			resp, err = ExchangeClientCredentials(ctx, s.storage, s.hasher, currentIssuer, req)
+			resp, err = ExchangeClientCredentials(ctx, s.storage, s.hasher, s.issuer, req)
 		case GrantTypePassword: // 仅供压力测试使用, 环境会返回错误
-			resp, err = PasswordGrant(ctx, s.storage, s.hasher, currentIssuer, req)
+			resp, err = PasswordGrant(ctx, s.storage, s.hasher, s.issuer, req)
 		default:
 			err = ErrUnsupportedGrantType
 		}

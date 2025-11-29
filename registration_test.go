@@ -1,10 +1,12 @@
-package oidc
+package oidc_test
 
 import (
 	"context"
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/oy3o/oidc"
+	"github.com/oy3o/oidc/gorm"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -22,15 +24,15 @@ func (h *regTestHasher) Compare(ctx context.Context, hashedPassword []byte, pass
 	if string(hashedPassword) == "hashed_"+string(password) {
 		return nil
 	}
-	return ErrInvalidGrant
+	return oidc.ErrInvalidGrant
 }
 
 func TestRegisterClient_Confidential(t *testing.T) {
-	storage := NewMockStorage()
+	storage := NewTestStorage(t)
 	hasher := &regTestHasher{}
 	ctx := context.Background()
 
-	req := &ClientRegistrationRequest{
+	req := &oidc.ClientRegistrationRequest{
 		ClientName:              "My App",
 		RedirectURIs:            []string{"https://client.example.com/cb"},
 		GrantTypes:              []string{"authorization_code", "refresh_token"},
@@ -40,7 +42,7 @@ func TestRegisterClient_Confidential(t *testing.T) {
 	}
 
 	// 1. 注册
-	resp, err := RegisterClient(ctx, storage, hasher, req)
+	resp, err := oidc.RegisterClient(ctx, storage, hasher, req)
 	require.NoError(t, err)
 
 	// 2. 验证响应
@@ -50,7 +52,7 @@ func TestRegisterClient_Confidential(t *testing.T) {
 	assert.Equal(t, req.TokenEndpointAuthMethod, resp.TokenEndpointAuthMethod)
 
 	// 3. 验证存储 (Secret 应该是哈希过的)
-	storedClient, err := storage.GetClient(ctx, BinaryUUID(uuid.MustParse(resp.ClientID)))
+	storedClient, err := storage.GetClient(ctx, oidc.BinaryUUID(uuid.MustParse(resp.ClientID)))
 	require.NoError(t, err)
 
 	// MockStorage 存储的是 RegisteredClient 接口，我们需要断言具体的实现或行为
@@ -60,23 +62,23 @@ func TestRegisterClient_Confidential(t *testing.T) {
 	assert.NoError(t, err, "Stored hashed secret should match returned plain secret")
 
 	// 直接检查 MockStorage 内部数据 (如果需要白盒测试)
-	mockClient := storedClient.(*MockClient)
+	mockClient := storedClient.(*gorm.ClientModel)
 	assert.Equal(t, "hashed_"+resp.ClientSecret, mockClient.Secret)
 }
 
 func TestRegisterClient_Public(t *testing.T) {
-	storage := NewMockStorage()
+	storage := NewTestStorage(t)
 	hasher := &regTestHasher{}
 	ctx := context.Background()
 
-	req := &ClientRegistrationRequest{
+	req := &oidc.ClientRegistrationRequest{
 		ClientName:              "My SPA",
 		RedirectURIs:            []string{"http://localhost:3000/cb"},
 		TokenEndpointAuthMethod: "none", // 公共客户端
 	}
 
 	// 1. 注册
-	resp, err := RegisterClient(ctx, storage, hasher, req)
+	resp, err := oidc.RegisterClient(ctx, storage, hasher, req)
 	require.NoError(t, err)
 
 	// 2. 验证响应
@@ -84,38 +86,38 @@ func TestRegisterClient_Public(t *testing.T) {
 	assert.Empty(t, resp.ClientSecret, "Public client should not have a secret")
 
 	// 3. 验证存储
-	storedClient, err := storage.GetClient(ctx, BinaryUUID(uuid.MustParse(resp.ClientID)))
+	storedClient, err := storage.GetClient(ctx, oidc.BinaryUUID(uuid.MustParse(resp.ClientID)))
 	require.NoError(t, err)
 	assert.False(t, storedClient.IsConfidential())
 }
 
 func TestRegisterClient_ValidationFailures(t *testing.T) {
-	storage := NewMockStorage()
+	storage := NewTestStorage(t)
 	hasher := &regTestHasher{}
 	ctx := context.Background()
 
 	tests := []struct {
 		name      string
-		req       *ClientRegistrationRequest
+		req       *oidc.ClientRegistrationRequest
 		wantError string
 	}{
 		{
 			name: "Missing Name",
-			req: &ClientRegistrationRequest{
+			req: &oidc.ClientRegistrationRequest{
 				RedirectURIs: []string{"https://valid.com"},
 			},
 			wantError: "client_name is required",
 		},
 		{
 			name: "Missing Redirect URIs",
-			req: &ClientRegistrationRequest{
+			req: &oidc.ClientRegistrationRequest{
 				ClientName: "Test App",
 			},
 			wantError: "redirect_uri is required",
 		},
 		{
 			name: "Invalid Redirect URI (HTTP non-local)",
-			req: &ClientRegistrationRequest{
+			req: &oidc.ClientRegistrationRequest{
 				ClientName:   "Test App",
 				RedirectURIs: []string{"http://example.com/cb"},
 			},
@@ -123,7 +125,7 @@ func TestRegisterClient_ValidationFailures(t *testing.T) {
 		},
 		{
 			name: "Invalid Redirect URI (Fragment)",
-			req: &ClientRegistrationRequest{
+			req: &oidc.ClientRegistrationRequest{
 				ClientName:   "Test App",
 				RedirectURIs: []string{"https://example.com/cb#fragment"},
 			},
@@ -131,7 +133,7 @@ func TestRegisterClient_ValidationFailures(t *testing.T) {
 		},
 		{
 			name: "Invalid Redirect URI (Dangerous Scheme)",
-			req: &ClientRegistrationRequest{
+			req: &oidc.ClientRegistrationRequest{
 				ClientName:   "Test App",
 				RedirectURIs: []string{"javascript:alert(1)"},
 			},
@@ -141,7 +143,7 @@ func TestRegisterClient_ValidationFailures(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := RegisterClient(ctx, storage, hasher, tt.req)
+			_, err := oidc.RegisterClient(ctx, storage, hasher, tt.req)
 			assert.Error(t, err)
 			if err != nil {
 				assert.Contains(t, err.Error(), tt.wantError)
@@ -151,22 +153,22 @@ func TestRegisterClient_ValidationFailures(t *testing.T) {
 }
 
 func TestUpdateClient_Success(t *testing.T) {
-	storage := NewMockStorage()
+	storage := NewTestStorage(t)
 	hasher := &regTestHasher{}
 	ctx := context.Background()
 
 	// 1. 先注册一个客户端
-	createReq := &ClientRegistrationRequest{
+	createReq := &oidc.ClientRegistrationRequest{
 		ClientName:              "Original Name",
 		RedirectURIs:            []string{"https://old.com"},
 		TokenEndpointAuthMethod: "client_secret_basic",
 	}
-	createResp, _ := RegisterClient(ctx, storage, hasher, createReq)
+	createResp, _ := oidc.RegisterClient(ctx, storage, hasher, createReq)
 	clientID := createResp.ClientID
 	originalSecret := createResp.ClientSecret
 
 	// 2. 更新请求
-	updateReq := &ClientRegistrationRequest{
+	updateReq := &oidc.ClientRegistrationRequest{
 		ClientName:              "New Name",
 		RedirectURIs:            []string{"https://new.com"},
 		TokenEndpointAuthMethod: "client_secret_basic",
@@ -174,7 +176,7 @@ func TestUpdateClient_Success(t *testing.T) {
 	}
 
 	// 3. 执行更新
-	updateResp, err := UpdateClient(ctx, storage, &ClientUpdateRequest{clientID, updateReq})
+	updateResp, err := oidc.UpdateClient(ctx, storage, &oidc.ClientUpdateRequest{clientID, updateReq})
 	require.NoError(t, err)
 
 	// 4. 验证响应
@@ -183,49 +185,49 @@ func TestUpdateClient_Success(t *testing.T) {
 	assert.Equal(t, []string{"https://new.com"}, updateResp.RedirectURIs)
 
 	// 5. 验证存储中的 Secret 未改变 (Update 不应重置 Secret)
-	storedClient, _ := storage.GetClient(ctx, BinaryUUID(uuid.MustParse(clientID)))
+	storedClient, _ := storage.GetClient(ctx, oidc.BinaryUUID(uuid.MustParse(clientID)))
 	err = storedClient.ValidateSecret(ctx, hasher, originalSecret)
 	assert.NoError(t, err, "Secret should persist after update")
 }
 
 func TestUpdateClient_NotFound(t *testing.T) {
-	storage := NewMockStorage()
+	storage := NewTestStorage(t)
 	ctx := context.Background()
 	randomID := uuid.New().String()
 
-	req := &ClientRegistrationRequest{
+	req := &oidc.ClientRegistrationRequest{
 		ClientName:   "New Name",
 		RedirectURIs: []string{"https://new.com"},
 	}
 
-	_, err := UpdateClient(ctx, storage, &ClientUpdateRequest{randomID, req})
-	assert.ErrorIs(t, err, ErrClientNotFound)
+	_, err := oidc.UpdateClient(ctx, storage, &oidc.ClientUpdateRequest{randomID, req})
+	assert.ErrorIs(t, err, oidc.ErrClientNotFound)
 }
 
 func TestUnregisterClient(t *testing.T) {
-	storage := NewMockStorage()
+	storage := NewTestStorage(t)
 	hasher := &regTestHasher{}
 	ctx := context.Background()
 
 	// 1. 注册
-	req := &ClientRegistrationRequest{
+	req := &oidc.ClientRegistrationRequest{
 		ClientName:   "To Delete",
 		RedirectURIs: []string{"https://delete.com"},
 	}
-	resp, _ := RegisterClient(ctx, storage, hasher, req)
+	resp, _ := oidc.RegisterClient(ctx, storage, hasher, req)
 	clientID := resp.ClientID
 
 	// 2. 验证存在
-	_, err := storage.GetClient(ctx, BinaryUUID(uuid.MustParse(clientID)))
+	_, err := storage.GetClient(ctx, oidc.BinaryUUID(uuid.MustParse(clientID)))
 	require.NoError(t, err)
 
 	// 3. 注销
-	err = UnregisterClient(ctx, storage, clientID)
+	err = oidc.UnregisterClient(ctx, storage, clientID)
 	require.NoError(t, err)
 
 	// 4. 验证不存在
-	_, err = storage.GetClient(ctx, BinaryUUID(uuid.MustParse(clientID)))
-	assert.ErrorIs(t, err, ErrClientNotFound)
+	_, err = storage.GetClient(ctx, oidc.BinaryUUID(uuid.MustParse(clientID)))
+	assert.ErrorIs(t, err, oidc.ErrClientNotFound)
 }
 
 func TestValidateRegistrationRequest_RedirectURISchemes(t *testing.T) {
@@ -248,11 +250,11 @@ func TestValidateRegistrationRequest_RedirectURISchemes(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		req := &ClientRegistrationRequest{
+		req := &oidc.ClientRegistrationRequest{
 			ClientName:   "Test",
 			RedirectURIs: []string{tt.uri},
 		}
-		err := ValidateRegistrationRequest(req, map[string]struct{}{
+		err := oidc.ValidateRegistrationRequest(req, map[string]struct{}{
 			"com.app": {},
 		})
 		if tt.valid {

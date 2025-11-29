@@ -1,11 +1,13 @@
-package oidc
+package oidc_test
 
 import (
 	"context"
+	"net/url"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/oy3o/oidc"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -19,23 +21,23 @@ func (m *mockHasher) Hash(ctx context.Context, password []byte) ([]byte, error) 
 
 func (m *mockHasher) Compare(ctx context.Context, hashedPassword []byte, password []byte) error {
 	if string(hashedPassword) != string(password) {
-		return ErrInvalidGrant
+		return oidc.ErrInvalidGrant
 	}
 	return nil
 }
 
 // setupAuthorizeTest 初始化 Server 和 Storage，并注册一个默认客户端
-func setupAuthorizeTest(t *testing.T) (*Server, *MockStorage, RegisteredClient) {
-	storage := NewMockStorage()
+func setupAuthorizeTest(t *testing.T) (*oidc.Server, oidc.Storage, oidc.RegisteredClient) {
+	storage := NewTestStorage(t)
 	hasher := &mockHasher{}
 
 	// 初始化 SecretManager 并添加 HMAC 密钥
-	sm := NewSecretManager()
+	sm := oidc.NewSecretManager()
 	// 32字节的 hex string
 	err := sm.AddKey("test-hmac-key", "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff")
 	require.NoError(t, err)
 
-	cfg := ServerConfig{
+	cfg := oidc.ServerConfig{
 		Issuer:        "https://auth.example.com",
 		Storage:       storage,
 		Hasher:        hasher,
@@ -43,16 +45,16 @@ func setupAuthorizeTest(t *testing.T) (*Server, *MockStorage, RegisteredClient) 
 		CodeTTL:       10 * time.Minute,
 	}
 
-	server, err := NewServer(cfg)
+	server, err := oidc.NewServer(cfg)
 	require.NoError(t, err)
 
 	// 添加签名密钥 (NewServer 后必须步骤)
-	_, err = server.KeyManager().Generate(context.Background(), KEY_RSA, true)
+	_, err = server.KeyManager().Generate(context.Background(), oidc.KEY_RSA, true)
 	require.NoError(t, err)
 
 	// 创建一个测试客户端
-	clientID := BinaryUUID(uuid.New())
-	clientMeta := ClientMetadata{
+	clientID := oidc.BinaryUUID(uuid.New())
+	clientMeta := oidc.ClientMetadata{
 		ID:           clientID,
 		RedirectURIs: []string{"https://client.example.com/cb"},
 		GrantTypes:   []string{"authorization_code"},
@@ -70,7 +72,7 @@ func TestRequestAuthorize_Valid(t *testing.T) {
 	server, _, client := setupAuthorizeTest(t)
 	ctx := context.Background()
 
-	req := &AuthorizeRequest{
+	req := &oidc.AuthorizeRequest{
 		ClientID:            client.GetID().String(),
 		RedirectURI:         "https://client.example.com/cb",
 		ResponseType:        "code",
@@ -90,7 +92,7 @@ func TestRequestAuthorize_InvalidClient(t *testing.T) {
 	server, _, _ := setupAuthorizeTest(t)
 	ctx := context.Background()
 
-	req := &AuthorizeRequest{
+	req := &oidc.AuthorizeRequest{
 		ClientID:     uuid.New().String(), // 不存在的 ID
 		RedirectURI:  "https://client.example.com/cb",
 		ResponseType: "code",
@@ -107,14 +109,14 @@ func TestRequestAuthorize_RedirectURIMismatch(t *testing.T) {
 	server, _, client := setupAuthorizeTest(t)
 	ctx := context.Background()
 
-	req := &AuthorizeRequest{
+	req := &oidc.AuthorizeRequest{
 		ClientID:     client.GetID().String(),
 		RedirectURI:  "https://attacker.com/cb", // 未注册的 URI
 		ResponseType: "code",
 	}
 
 	_, err := server.RequestAuthorize(ctx, req)
-	assert.ErrorIs(t, err, ErrInvalidRequest)
+	assert.ErrorIs(t, err, oidc.ErrInvalidRequest)
 	assert.Contains(t, err.Error(), "mismatch redirect_uri")
 }
 
@@ -122,21 +124,21 @@ func TestRequestAuthorize_UnsupportedResponseType(t *testing.T) {
 	server, _, client := setupAuthorizeTest(t)
 	ctx := context.Background()
 
-	req := &AuthorizeRequest{
+	req := &oidc.AuthorizeRequest{
 		ClientID:     client.GetID().String(),
 		RedirectURI:  "https://client.example.com/cb",
 		ResponseType: "token", // 仅支持 code
 	}
 
 	_, err := server.RequestAuthorize(ctx, req)
-	assert.ErrorIs(t, err, ErrUnsupportedGrantType)
+	assert.ErrorIs(t, err, oidc.ErrUnsupportedGrantType)
 }
 
 func TestRequestAuthorize_InvalidScope(t *testing.T) {
 	server, _, client := setupAuthorizeTest(t)
 	ctx := context.Background()
 
-	req := &AuthorizeRequest{
+	req := &oidc.AuthorizeRequest{
 		ClientID:     client.GetID().String(),
 		RedirectURI:  "https://client.example.com/cb",
 		ResponseType: "code",
@@ -144,14 +146,14 @@ func TestRequestAuthorize_InvalidScope(t *testing.T) {
 	}
 
 	_, err := server.RequestAuthorize(ctx, req)
-	assert.ErrorIs(t, err, ErrInvalidScope)
+	assert.ErrorIs(t, err, oidc.ErrInvalidScope)
 }
 
 func TestRequestAuthorize_MissingNonceForOpenID(t *testing.T) {
 	server, _, client := setupAuthorizeTest(t)
 	ctx := context.Background()
 
-	req := &AuthorizeRequest{
+	req := &oidc.AuthorizeRequest{
 		ClientID:     client.GetID().String(),
 		RedirectURI:  "https://client.example.com/cb",
 		ResponseType: "code",
@@ -160,7 +162,7 @@ func TestRequestAuthorize_MissingNonceForOpenID(t *testing.T) {
 	}
 
 	_, err := server.RequestAuthorize(ctx, req)
-	assert.ErrorIs(t, err, ErrInvalidRequest)
+	assert.ErrorIs(t, err, oidc.ErrInvalidRequest)
 	assert.Contains(t, err.Error(), "nonce is required")
 }
 
@@ -168,7 +170,7 @@ func TestRequestAuthorize_PKCERequired(t *testing.T) {
 	server, _, client := setupAuthorizeTest(t)
 	ctx := context.Background()
 
-	req := &AuthorizeRequest{
+	req := &oidc.AuthorizeRequest{
 		ClientID:      client.GetID().String(),
 		RedirectURI:   "https://client.example.com/cb",
 		ResponseType:  "code",
@@ -178,7 +180,7 @@ func TestRequestAuthorize_PKCERequired(t *testing.T) {
 	}
 
 	_, err := server.RequestAuthorize(ctx, req)
-	assert.ErrorIs(t, err, ErrInvalidRequest)
+	assert.ErrorIs(t, err, oidc.ErrInvalidRequest)
 	assert.Contains(t, err.Error(), "code_challenge is required")
 }
 
@@ -188,7 +190,7 @@ func TestRequestAuthorize_PAR(t *testing.T) {
 
 	// 1. 预先存储 PAR Session
 	requestURI := "urn:ietf:params:oauth:request_uri:test-uuid"
-	parReq := &AuthorizeRequest{
+	parReq := &oidc.AuthorizeRequest{
 		ClientID:            client.GetID().String(),
 		RedirectURI:         "https://client.example.com/cb",
 		ResponseType:        "code",
@@ -202,7 +204,7 @@ func TestRequestAuthorize_PAR(t *testing.T) {
 	require.NoError(t, err)
 
 	// 2. 使用 request_uri 发起请求
-	req := &AuthorizeRequest{
+	req := &oidc.AuthorizeRequest{
 		ClientID:   client.GetID().String(), // ClientID 仍需提供以查找 Client
 		RequestURI: requestURI,
 	}
@@ -227,7 +229,7 @@ func TestResponseAuthorized_Success(t *testing.T) {
 	userID := uuid.New().String()
 	authTime := time.Now()
 
-	req := &AuthorizeRequest{
+	req := &oidc.AuthorizeRequest{
 		ClientID:            client.GetID().String(),
 		RedirectURI:         "https://client.example.com/cb",
 		ResponseType:        "code",
@@ -249,18 +251,14 @@ func TestResponseAuthorized_Success(t *testing.T) {
 	assert.Contains(t, redirectURL, "code=")
 	assert.Contains(t, redirectURL, "state=xyz")
 
-	// 验证 Storage 中是否保存了 Code
-	// 从 URL 提取 Code (简化提取，假设 code 是第一个参数)
-	// 实际 URL 可能是 https://...?code=xxx&state=xyz
-	// 这里通过 mock storage 的内部 map 验证更直接
-	assert.NotEmpty(t, storage.authCodes, "Auth code should be saved in storage")
+	// 从 URL 提取 Code
+	url, err := url.Parse(redirectURL)
+	require.NoError(t, err)
+	code := url.Query().Get("code")
 
-	// 遍历 map 找到对应的 session (因为 code 是随机的)
-	var session *AuthCodeSession
-	for _, s := range storage.authCodes {
-		session = s
-		break
-	}
+	// 验证 Code 是否存在
+	session, err := storage.LoadAndConsumeAuthCode(ctx, code)
+	require.NoError(t, err)
 
 	require.NotNil(t, session)
 	assert.Equal(t, client.GetID(), session.ClientID)
@@ -273,7 +271,7 @@ func TestResponseAuthorized_MissingUserID(t *testing.T) {
 	server, _, client := setupAuthorizeTest(t)
 	ctx := context.Background()
 
-	req := &AuthorizeRequest{
+	req := &oidc.AuthorizeRequest{
 		ClientID:     client.GetID().String(),
 		RedirectURI:  "https://client.example.com/cb",
 		ResponseType: "code",
@@ -281,14 +279,14 @@ func TestResponseAuthorized_MissingUserID(t *testing.T) {
 	}
 
 	_, err := server.ResponseAuthorized(ctx, req)
-	assert.ErrorIs(t, err, ErrUserIDRequired)
+	assert.ErrorIs(t, err, oidc.ErrUserIDRequired)
 }
 
 func TestResponseAuthorized_FinalScope(t *testing.T) {
 	server, storage, client := setupAuthorizeTest(t)
 	ctx := context.Background()
 
-	req := &AuthorizeRequest{
+	req := &oidc.AuthorizeRequest{
 		ClientID:            client.GetID().String(),
 		RedirectURI:         "https://client.example.com/cb",
 		ResponseType:        "code",
@@ -301,15 +299,14 @@ func TestResponseAuthorized_FinalScope(t *testing.T) {
 		AuthTime:            time.Now(),
 	}
 
-	_, err := server.ResponseAuthorized(ctx, req)
+	redirectURL, err := server.ResponseAuthorized(ctx, req)
 	assert.NoError(t, err)
-
-	// 验证保存的 Code Session 使用的是 FinalScope
-	var session *AuthCodeSession
-	for _, s := range storage.authCodes {
-		session = s
-		break
-	}
+	// 从 URL 提取 Code
+	url, err := url.Parse(redirectURL)
+	require.NoError(t, err)
+	code := url.Query().Get("code")
+	session, err := storage.LoadAndConsumeAuthCode(ctx, code)
+	require.NoError(t, err)
 	require.NotNil(t, session)
 	assert.Equal(t, "openid profile", session.Scope)
 }

@@ -29,14 +29,16 @@ const (
 
 // RedisStorage 实现了 oidc 包所需的多个存储接口
 type RedisStorage struct {
-	client *redis.Client
+	client  *redis.Client
+	factory oidc.ClientFactory
 }
 
 var _ oidc.Cache = (*RedisStorage)(nil)
 
-func NewRedisStorage(client *redis.Client) *RedisStorage {
+func NewRedisStorage(client *redis.Client, factory oidc.ClientFactory) *RedisStorage {
 	return &RedisStorage{
-		client: client,
+		client:  client,
+		factory: factory,
 	}
 }
 
@@ -174,6 +176,23 @@ func (r *RedisStorage) UpdateDeviceCodeSession(ctx context.Context, deviceCode s
 	}).Err()
 }
 
+// RemoveDeviceCodeSession 删除设备码会话
+func (r *RedisStorage) RemoveDeviceCodeSession(ctx context.Context, deviceCode string) error {
+	// 1. 先获取 Session 以拿到 UserCode (为了删除索引)
+	// 如果 Session 已经过期或不存在，Get 会报错，我们忽略错误直接返回即可
+	session, err := r.GetDeviceCodeSession(ctx, deviceCode)
+	if err != nil {
+		return nil // 已经不存在了，视为成功
+	}
+
+	// 2. 使用 Pipeline 原子删除两个 Key
+	pipe := r.client.Pipeline()
+	pipe.Del(ctx, prefixDeviceCode+deviceCode)
+	pipe.Del(ctx, prefixUserCode+session.UserCode)
+	_, err = pipe.Exec(ctx)
+	return err
+}
+
 // ---------------------------------------------------------------------------
 // DistributedLock Implementation
 // ---------------------------------------------------------------------------
@@ -194,9 +213,21 @@ func (r *RedisStorage) Unlock(ctx context.Context, key string) error {
 // PARStorage Implementation (RFC 9126)
 // ---------------------------------------------------------------------------
 
+// internalPARSession 用于在 Redis 中存储带过期时间的数据
+type internalPARSession struct {
+	Request   *oidc.AuthorizeRequest `json:"req"`
+	ExpiresAt time.Time              `json:"exp"`
+}
+
 // SavePARSession 保存 PAR 会话
 func (r *RedisStorage) SavePARSession(ctx context.Context, requestURI string, req *oidc.AuthorizeRequest, ttl time.Duration) error {
-	reqJSON, err := sonic.Marshal(req)
+	if ttl <= 0 {
+		return fmt.Errorf("invalid ttl: %v", ttl)
+	}
+	reqJSON, err := sonic.Marshal(&internalPARSession{
+		Request:   req,
+		ExpiresAt: time.Now().Add(ttl),
+	})
 	if err != nil {
 		return fmt.Errorf("failed to marshal AuthorizeRequest: %w", err)
 	}
@@ -232,13 +263,19 @@ func (r *RedisStorage) GetAndDeletePARSession(ctx context.Context, requestURI st
 	if !ok {
 		return nil, errors.New("invalid data type in redis")
 	}
-
-	var req oidc.AuthorizeRequest
-	if err := sonic.Unmarshal([]byte(valStr), &req); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal AuthorizeRequest: %w", err)
+	var session internalPARSession
+	if err := sonic.Unmarshal([]byte(valStr), &session); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal PAR session: %w", err)
 	}
 
-	return &req, nil
+	// 应用层双重过期检查
+	// 即便 Redis 没有及时删除，我们也在这里拦截
+	if time.Now().After(session.ExpiresAt) {
+		// 记录已从 Redis 删除（Lua脚本已执行删除），但数据已过期
+		return nil, fmt.Errorf("PAR session expired")
+	}
+
+	return session.Request, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -433,24 +470,27 @@ const prefixClient = "oidc:client:"
 
 func (r *RedisStorage) GetClient(ctx context.Context, clientID oidc.BinaryUUID) (oidc.RegisteredClient, error) {
 	key := prefixClient + clientID.String()
-	_, err := r.client.Get(ctx, key).Result()
+	clientStr, err := r.client.Get(ctx, key).Result()
 	if err == redis.Nil {
 		return nil, oidc.ErrClientNotFound
 	}
 	if err != nil {
 		return nil, err
 	}
-
-	// Placeholder: We need a way to deserialize RegisteredClient.
-	// For now, returning error to indicate cache miss or not implemented,
-	// but we should try to implement it if possible.
-	// Since we don't have a concrete type, we can't unmarshal easily.
-	return nil, oidc.ErrClientNotFound
+	client := r.factory.New()
+	if err := client.Deserialize(clientStr); err != nil {
+		return nil, err
+	}
+	return client, nil
 }
 
 func (r *RedisStorage) SaveClient(ctx context.Context, client oidc.RegisteredClient, ttl time.Duration) error {
-	// Placeholder
-	return nil
+	data, err := client.Serialize()
+	if err != nil {
+		return fmt.Errorf("failed to serialize client: %w", err)
+	}
+	key := prefixClient + client.GetID().String()
+	return r.client.Set(ctx, key, data, ttl).Err()
 }
 
 func (r *RedisStorage) InvalidateClient(ctx context.Context, clientID oidc.BinaryUUID) error {
@@ -491,4 +531,17 @@ func (r *RedisStorage) SaveRefreshToken(ctx context.Context, session *oidc.Refre
 func (r *RedisStorage) InvalidateRefreshToken(ctx context.Context, tokenID oidc.Hash256) error {
 	key := prefixRefreshToken + tokenID.String()
 	return r.client.Del(ctx, key).Err()
+}
+
+func (r *RedisStorage) InvalidateRefreshTokens(ctx context.Context, tokenIDs []oidc.Hash256) error {
+	if len(tokenIDs) == 0 {
+		return nil
+	}
+
+	keys := make([]string, len(tokenIDs))
+	for i, id := range tokenIDs {
+		keys[i] = prefixRefreshToken + id.String()
+	}
+
+	return r.client.Del(ctx, keys...).Err()
 }

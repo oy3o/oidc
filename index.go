@@ -58,8 +58,9 @@ func (h *Hash256) Scan(value interface{}) error {
 }
 
 // GormDataType 实现 GORM 自定义数据类型接口
+// 返回 "bytes" 让 GORM 根据驱动自动映射 (Postgres->bytea, MySQL->blob/binary)
 func (Hash256) GormDataType() string {
-	return "binary(32)"
+	return "bytes"
 }
 
 // ---------------------------------------------------------
@@ -146,8 +147,9 @@ func (b *BinaryUUID) Scan(value interface{}) error {
 }
 
 // GormDataType 实现 GORM 自定义数据类型接口
+// 返回 "bytes" 让 GORM 根据驱动自动映射 (Postgres->bytea, MySQL->blob/binary)
 func (BinaryUUID) GormDataType() string {
-	return "binary(16)"
+	return "bytes"
 }
 
 // ---------------------------------------------------------

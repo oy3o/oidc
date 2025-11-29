@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/bytedance/sonic"
+	"github.com/google/uuid"
 	"github.com/lestrrat-go/jwx/v2/jwk"
 	"github.com/oy3o/oidc"
 	"gorm.io/gorm"
@@ -318,8 +319,24 @@ func (s *GormStorage) RevokeRefreshToken(ctx context.Context, tokenID oidc.Hash2
 	return s.db.WithContext(ctx).Delete(&RefreshTokenModel{}, "id = ?", tokenID).Error
 }
 
-func (s *GormStorage) RevokeTokensForUser(ctx context.Context, userID oidc.BinaryUUID) error {
-	return s.db.WithContext(ctx).Delete(&RefreshTokenModel{}, "user_id = ?", userID).Error
+func (s *GormStorage) RevokeTokensForUser(ctx context.Context, userID oidc.BinaryUUID) ([]oidc.Hash256, error) {
+	var tokens []RefreshTokenModel
+
+	// 使用 Clauses(clause.Returning{})
+	err := s.db.WithContext(ctx).
+		Clauses(clause.Returning{Columns: []clause.Column{{Name: "id"}}}). // 只返回 ID
+		Where("user_id = ?", userID).
+		Delete(&tokens).Error
+	if err != nil {
+		return nil, err
+	}
+
+	var ids []oidc.Hash256
+	for _, t := range tokens {
+		ids = append(ids, t.ID)
+	}
+
+	return ids, nil
 }
 
 // --- UserInfoGetter & UserAuthenticator Implementation ---
@@ -384,20 +401,39 @@ func (s *GormStorage) GetUser(ctx context.Context, username, password string) (o
 	return user.ID, nil
 }
 
-// MarkRefreshTokenAsRotating GORM 实现（简化版）
-// GORM 基于 SQL 数据库，宽限期功能建议使用 Redis 等缓存实现
-// 或者创建一个 rotating_tokens 表来跟踪（会增加数据库复杂度）
-// 这里返回 nil 表示不支持宽限期功能，调用者应该直接删除旧 Token
-func (s *GormStorage) MarkRefreshTokenAsRotating(ctx context.Context, tokenID oidc.Hash256, gracePeriod time.Duration) error {
-	// 简化实现：不支持宽限期
-	// 在GORM实现中，可以选择创建一个临时表来实现此功能
-	// 但更推荐使用 Redis 作为 ReplayCache 的同时也处理宽限期
-	return nil // 返回 nil 表示接受但不实现
-}
-
-// IsInGracePeriod GORM 实现（简化版）
-// 与 MarkRefreshTokenAsRotating 配套，始终返回 false
-func (s *GormStorage) IsInGracePeriod(ctx context.Context, tokenID oidc.Hash256) (bool, error) {
-	// 简化实现：始终返回 false，表示没有宽限期
-	return false, nil
+func (s *GormStorage) CreateUserInfo(ctx context.Context, userInfo *oidc.UserInfo) error {
+	model := &UserModel{}
+	id, err := uuid.Parse(userInfo.Subject)
+	if err != nil {
+		return err
+	}
+	model.ID = oidc.BinaryUUID(id)
+	if userInfo.Name != nil {
+		model.Username = *userInfo.Name
+	}
+	if userInfo.Name != nil {
+		model.Name = *userInfo.Name
+	}
+	if userInfo.Email != nil {
+		model.Email = *userInfo.Email
+	}
+	if userInfo.PhoneNumber != nil {
+		model.PhoneNumber = *userInfo.PhoneNumber
+	}
+	if userInfo.Picture != nil {
+		model.Picture = *userInfo.Picture
+	}
+	if userInfo.Website != nil {
+		model.Website = *userInfo.Website
+	}
+	if userInfo.Profile != nil {
+		model.Profile = *userInfo.Profile
+	}
+	if userInfo.EmailVerified != nil {
+		model.EmailVerified = *userInfo.EmailVerified
+	}
+	if userInfo.PhoneNumberVerified != nil {
+		model.PhoneNumberVerified = *userInfo.PhoneNumberVerified
+	}
+	return s.db.WithContext(ctx).Create(model).Error
 }

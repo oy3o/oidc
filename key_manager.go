@@ -35,13 +35,16 @@ type KeyManager struct {
 }
 
 // NewKeyManager 创建密钥管理器
-func NewKeyManager(storage KeyStorage) *KeyManager {
+func NewKeyManager(storage KeyStorage, cacheTTL time.Duration) *KeyManager {
+	if cacheTTL <= 0 {
+		cacheTTL = DefaultKeyCacheTTL
+	}
 	return &KeyManager{
 		storage:               storage,
 		keys:                  xsync.NewMap[string, Key](),
 		signingKeyID:          xsync.NewMap[string, string](),
 		signingKeyIDFetchedAt: xsync.NewMap[string, time.Time](),
-		cacheTTL:              DefaultKeyCacheTTL,
+		cacheTTL:              cacheTTL,
 	}
 }
 

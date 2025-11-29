@@ -115,7 +115,7 @@ func RequestAuthorize(ctx context.Context, storage Storage, req *AuthorizeReques
 	// 在旧的标准（RFC 7636）中，机密客户端（Confidential Client）不需要强制使用 PKCE。
 	// 但在最新的安全最佳实践（OAuth 2.0 Security BCP）和即将到来的 OAuth 2.1 标准中，强烈建议甚至强制所有类型的客户端（包括机密客户端）都使用 PKCE。
 	if req.CodeChallengeMethod == "" {
-		req.CodeChallengeMethod = CodeChallengeMethodPlain
+		req.CodeChallengeMethod = CodeChallengeMethodS256
 	}
 	if req.CodeChallenge == "" {
 		return nil, fmt.Errorf("%w: code_challenge is required", ErrInvalidRequest)
@@ -143,7 +143,7 @@ func ResponseAuthorized(ctx context.Context, storage AuthCodeStorage, req *Autho
 	}
 
 	if req.CodeChallengeMethod == "" {
-		req.CodeChallengeMethod = CodeChallengeMethodPlain
+		req.CodeChallengeMethod = CodeChallengeMethodS256
 	}
 
 	// 1. 确定最终 Scope

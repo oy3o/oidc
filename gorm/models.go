@@ -5,13 +5,14 @@ import (
 	"errors"
 	"time"
 
+	"github.com/bytedance/sonic"
 	"github.com/oy3o/oidc"
 )
 
 // ClientModel 对应 oidc.RegisteredClient
 type ClientModel struct {
-	ID                      oidc.BinaryUUID `gorm:"column:id;type:binary(16);primaryKey"`
-	OwnerID                 oidc.BinaryUUID `gorm:"column:owner_id;type:binary(16);index"`
+	ID                      oidc.BinaryUUID `gorm:"column:id;primaryKey"`
+	OwnerID                 oidc.BinaryUUID `gorm:"column:owner_id;index"`
 	Secret                  string          `gorm:"column:secret;type:text"`        // 存储哈希后的 Secret
 	RedirectURIs            StringSlice     `gorm:"column:redirect_uris;type:text"` // JSON
 	GrantTypes              StringSlice     `gorm:"column:grant_types;type:text"`   // JSON
@@ -31,6 +32,17 @@ func (c *ClientModel) GetGrantTypes() []string   { return c.GrantTypes }
 func (c *ClientModel) GetScope() string          { return c.Scope }
 func (c *ClientModel) IsConfidential() bool      { return c.IsConfidentialClient }
 func (c *ClientModel) TableName() string         { return "oidc_clients" }
+func (c *ClientModel) Serialize() (string, error) {
+	b, err := sonic.ConfigDefault.Marshal(c)
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
+}
+
+func (c *ClientModel) Deserialize(data string) error {
+	return sonic.ConfigDefault.Unmarshal([]byte(data), c)
+}
 
 // ValidateSecret 需要 hasher 协助，这里只提供数据，逻辑在 Server 层或 Storage 方法中
 // 为了满足接口，我们在 Storage 实现中处理，这里仅作占位
@@ -48,8 +60,8 @@ func (c *ClientModel) ValidateSecret(ctx context.Context, hasher oidc.Hasher, se
 // AuthCodeModel 对应 oidc.AuthCodeSession
 type AuthCodeModel struct {
 	Code                string          `gorm:"column:code;primaryKey;size:128"`
-	ClientID            oidc.BinaryUUID `gorm:"column:client_id;type:binary(16);index"`
-	UserID              oidc.BinaryUUID `gorm:"column:user_id;type:binary(16);index"`
+	ClientID            oidc.BinaryUUID `gorm:"column:client_id;index"`
+	UserID              oidc.BinaryUUID `gorm:"column:user_id;index"`
 	Scope               string          `gorm:"column:scope;type:text"`
 	Nonce               string          `gorm:"column:nonce;type:varchar(255)"`
 	RedirectURI         string          `gorm:"column:redirect_uri;type:text"`
@@ -65,9 +77,9 @@ func (AuthCodeModel) TableName() string { return "oidc_auth_codes" }
 
 // RefreshTokenModel 对应 oidc.RefreshTokenSession
 type RefreshTokenModel struct {
-	ID        oidc.Hash256    `gorm:"column:id;type:binary(32);primaryKey"`
-	ClientID  oidc.BinaryUUID `gorm:"column:client_id;type:binary(16);index"`
-	UserID    oidc.BinaryUUID `gorm:"column:user_id;type:binary(16);index"`
+	ID        oidc.Hash256    `gorm:"column:id;primaryKey"`
+	ClientID  oidc.BinaryUUID `gorm:"column:client_id;index"`
+	UserID    oidc.BinaryUUID `gorm:"column:user_id;index"`
 	Scope     string          `gorm:"column:scope;type:text"`
 	Nonce     string          `gorm:"column:nonce;type:varchar(255)"`
 	AuthTime  time.Time       `gorm:"column:auth_time"`
@@ -90,8 +102,8 @@ func (BlacklistModel) TableName() string { return "oidc_token_blacklist" }
 type DeviceCodeModel struct {
 	DeviceCode      string          `gorm:"column:device_code;primaryKey;size:128"`
 	UserCode        string          `gorm:"column:user_code;index;size:20"`
-	ClientID        oidc.BinaryUUID `gorm:"column:client_id;type:binary(16)"`
-	UserID          oidc.BinaryUUID `gorm:"column:user_id;type:binary(16)"`
+	ClientID        oidc.BinaryUUID `gorm:"column:client_id"`
+	UserID          oidc.BinaryUUID `gorm:"column:user_id"`
 	Scope           string          `gorm:"column:scope;type:text"`
 	AuthorizedScope string          `gorm:"column:authorized_scope;type:text"`
 	Status          string          `gorm:"column:status;type:varchar(20)"` // pending, allowed, denied
@@ -103,7 +115,7 @@ func (DeviceCodeModel) TableName() string { return "oidc_device_codes" }
 
 // UserModel 一个基础的用户表实现
 type UserModel struct {
-	ID                  oidc.BinaryUUID `gorm:"column:id;type:binary(16);primaryKey"`
+	ID                  oidc.BinaryUUID `gorm:"column:id;primaryKey"`
 	Username            string          `gorm:"column:username;uniqueIndex;size:100"`
 	PasswordHash        string          `gorm:"column:password_hash;type:varchar(255)"`
 	Name                string          `gorm:"column:name"`

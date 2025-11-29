@@ -10,6 +10,18 @@ import (
 	"github.com/oy3o/oidc"
 )
 
+// populateCredentials 辅助函数：如果 struct 中未绑定 ClientID/Secret，尝试从 Basic Auth 获取
+func populateCredentials(r *http.Request, clientID, clientSecret *string) {
+	if uid, pwd, ok := r.BasicAuth(); ok {
+		if *clientID == "" {
+			*clientID = uid
+		}
+		if *clientSecret == "" {
+			*clientSecret = pwd
+		}
+	}
+}
+
 // TokenHandler 封装 OIDC Token Endpoint (/token)。
 func TokenHandler(s *oidc.Server) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -19,11 +31,13 @@ func TokenHandler(s *oidc.Server) http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json;charset=UTF-8")
 
 		var req oidc.TokenRequest
-		// 注意：httpx.Bind 可能会返回校验错误，这里统一包装为 invalid_request
 		if err := httpx.Bind(r, &req); err != nil {
 			Error(w, oidc.InvalidRequestError("failed to parse request: "+err.Error()))
 			return
 		}
+
+		// 补充 Basic Auth 支持
+		populateCredentials(r, &req.ClientID, &req.ClientSecret)
 
 		resp, err := s.Exchange(r.Context(), &req)
 		if err != nil {
@@ -97,6 +111,10 @@ func RevocationHandler(s *oidc.Server) http.HandlerFunc {
 			Error(w, oidc.InvalidRequestError(err.Error()))
 			return
 		}
+
+		// 补充 Basic Auth 支持
+		populateCredentials(r, &req.ClientID, &req.ClientSecret)
+
 		if err := s.RevokeToken(r.Context(), &req); err != nil {
 			Error(w, err)
 			return
@@ -124,6 +142,7 @@ func IntrospectionHandler(s *oidc.Server) http.HandlerFunc {
 			return
 		}
 
+		// 这里保持原有的手动处理逻辑，因为它直接操作了 Form
 		clientID, clientSecret, ok := r.BasicAuth()
 		if !ok {
 			clientID = r.Form.Get("client_id")
@@ -154,6 +173,9 @@ func PARHandler(s *oidc.Server) http.HandlerFunc {
 			return
 		}
 
+		// 补充 Basic Auth 支持 (PAR 必须验证 Client)
+		populateCredentials(r, &req.ClientID, &req.ClientSecret)
+
 		resp, err := s.PushedAuthorization(r.Context(), &req)
 		if err != nil {
 			Error(w, err)
@@ -175,6 +197,14 @@ func DeviceAuthorizationHandler(s *oidc.Server) http.HandlerFunc {
 		if err := httpx.Bind(r, &req); err != nil {
 			Error(w, oidc.InvalidRequestError(err.Error()))
 			return
+		}
+
+		// 虽然 Device Flow 常用于 Public Client，但如果是 Confidential Client，也需要认证
+		// DeviceAuthorizationRequest 结构体本身不带 Secret 字段，
+		// 但如果后续扩展需要 Client 认证，这里预留支持是有意义的。
+		// 目前 oidc.DeviceAuthorizationRequest 定义里没有 Secret，所以这里仅作为 ClientID 的 fallback
+		if uid, _, ok := r.BasicAuth(); ok && req.ClientID == "" {
+			req.ClientID = uid
 		}
 
 		resp, err := s.DeviceAuthorization(r.Context(), &req)

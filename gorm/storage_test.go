@@ -4,9 +4,10 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
-	"github.com/bytedance/sonic"
 	"testing"
 	"time"
+
+	"github.com/bytedance/sonic"
 
 	"github.com/google/uuid"
 	"github.com/lestrrat-go/jwx/v2/jwk"
@@ -189,7 +190,7 @@ func TestGormStorage_RevokeTokensForUser(t *testing.T) {
 	s.CreateRefreshToken(ctx, &oidc.RefreshTokenSession{ID: t2, UserID: userID, ExpiresAt: time.Now().Add(time.Hour)})
 
 	// Revoke
-	err := s.RevokeTokensForUser(ctx, userID)
+	_, err := s.RevokeTokensForUser(ctx, userID)
 	require.NoError(t, err)
 
 	_, err = s.GetRefreshToken(ctx, t1)

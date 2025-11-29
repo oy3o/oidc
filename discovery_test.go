@@ -1,4 +1,4 @@
-package oidc
+package oidc_test
 
 import (
 	"context"
@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/bytedance/sonic"
+	"github.com/oy3o/oidc"
 )
 
 // mockJWKSServer 创建一个 mock JWKS HTTP 服务器
@@ -18,12 +19,12 @@ func mockJWKSServer(t testing.TB, cacheDuration time.Duration) (*httptest.Server
 	requestCount := &atomic.Int32{}
 
 	// 生成一个真实的 RSA 密钥（仅一次，用于所有请求）
-	privateKey, err := NewKey(KEY_RSA)
+	privateKey, err := oidc.NewKey(oidc.KEY_RSA)
 	if err != nil {
 		t.Fatalf("failed to generate test key: %v", err)
 	}
 
-	pubJWK, err := PublicKeyToJWK(privateKey.Public(), "test-key-1", "RS256")
+	pubJWK, err := oidc.PublicKeyToJWK(privateKey.Public(), "test-key-1", "RS256")
 	if err != nil {
 		t.Fatalf("failed to convert public key to JWK: %v", err)
 	}
@@ -32,8 +33,8 @@ func mockJWKSServer(t testing.TB, cacheDuration time.Duration) (*httptest.Server
 		requestCount.Add(1)
 
 		// 返回 JWKS
-		jwks := JSONWebKeySet{
-			Keys: []JSONWebKey{pubJWK},
+		jwks := oidc.JSONWebKeySet{
+			Keys: []oidc.JSONWebKey{pubJWK},
 		}
 
 		// 设置 Cache-Control
@@ -61,7 +62,7 @@ func TestRemoteKeySet_StaleWhileRevalidate(t *testing.T) {
 	defer server.Close()
 
 	// 创建 RemoteKeySet, use short cache duration for testing
-	rks := NewRemoteKeySet(ctx, server.URL, nil, WithCacheDuration(3*time.Second))
+	rks := oidc.NewRemoteKeySet(ctx, server.URL, nil, oidc.WithCacheDuration(3*time.Second))
 	defer rks.Stop()
 
 	// 第一次请求，触发初始加载
@@ -110,8 +111,8 @@ func TestRemoteKeySet_ConcurrentGetKey(t *testing.T) {
 	ctx := context.Background()
 
 	// 生成真实密钥
-	privateKey, _ := NewKey(KEY_RSA)
-	pubJWK, _ := PublicKeyToJWK(privateKey.Public(), "test-key-1", "RS256")
+	privateKey, _ := oidc.NewKey(oidc.KEY_RSA)
+	pubJWK, _ := oidc.PublicKeyToJWK(privateKey.Public(), "test-key-1", "RS256")
 
 	// 创建 mock 服务器，模拟 100ms 延迟
 	requestCount := &atomic.Int32{}
@@ -119,8 +120,8 @@ func TestRemoteKeySet_ConcurrentGetKey(t *testing.T) {
 		requestCount.Add(1)
 		time.Sleep(100 * time.Millisecond) // 模拟网络延迟
 
-		jwks := JSONWebKeySet{
-			Keys: []JSONWebKey{pubJWK},
+		jwks := oidc.JSONWebKeySet{
+			Keys: []oidc.JSONWebKey{pubJWK},
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -128,7 +129,7 @@ func TestRemoteKeySet_ConcurrentGetKey(t *testing.T) {
 	}))
 	defer server.Close()
 
-	rks := NewRemoteKeySet(ctx, server.URL, nil)
+	rks := oidc.NewRemoteKeySet(ctx, server.URL, nil)
 	defer rks.Stop()
 
 	// 1000 个并发请求
@@ -169,7 +170,7 @@ func TestRemoteKeySet_BackgroundRefresh(t *testing.T) {
 		t.Skip("skipping background refresh test in short mode")
 	}
 
-	cleanup := setupO11yForTest()
+	cleanup := SetupO11yForTest()
 	defer cleanup()
 
 	ctx := context.Background()
@@ -178,7 +179,7 @@ func TestRemoteKeySet_BackgroundRefresh(t *testing.T) {
 	defer server.Close()
 
 	// Use short cache duration for testing
-	rks := NewRemoteKeySet(ctx, server.URL, nil, WithCacheDuration(2*time.Second))
+	rks := oidc.NewRemoteKeySet(ctx, server.URL, nil, oidc.WithCacheDuration(2*time.Second))
 	defer rks.Stop()
 
 	// 触发初始加载
@@ -211,8 +212,8 @@ func TestRemoteKeySet_RefreshFailureFallback(t *testing.T) {
 	ctx := context.Background()
 
 	// 生成真实密钥
-	privateKey, _ := NewKey(KEY_RSA)
-	pubJWK, _ := PublicKeyToJWK(privateKey.Public(), "test-key-1", "RS256")
+	privateKey, _ := oidc.NewKey(oidc.KEY_RSA)
+	pubJWK, _ := oidc.PublicKeyToJWK(privateKey.Public(), "test-key-1", "RS256")
 
 	// 创建会失败的服务器
 	failCount := &atomic.Int32{}
@@ -225,8 +226,8 @@ func TestRemoteKeySet_RefreshFailureFallback(t *testing.T) {
 			return
 		}
 
-		jwks := JSONWebKeySet{
-			Keys: []JSONWebKey{pubJWK},
+		jwks := oidc.JSONWebKeySet{
+			Keys: []oidc.JSONWebKey{pubJWK},
 		}
 
 		w.Header().Set("Cache-Control", "max-age=1")
@@ -235,7 +236,7 @@ func TestRemoteKeySet_RefreshFailureFallback(t *testing.T) {
 	}))
 	defer server.Close()
 
-	rks := NewRemoteKeySet(ctx, server.URL, nil)
+	rks := oidc.NewRemoteKeySet(ctx, server.URL, nil)
 	defer rks.Stop()
 
 	// 初始加载成功
@@ -262,7 +263,7 @@ func TestRemoteKeySet_KeyNotFound(t *testing.T) {
 	server, _ := mockJWKSServer(t, 5*time.Minute)
 	defer server.Close()
 
-	rks := NewRemoteKeySet(ctx, server.URL, nil)
+	rks := oidc.NewRemoteKeySet(ctx, server.URL, nil)
 	defer rks.Stop()
 
 	// 请求不存在的 KID
@@ -281,7 +282,7 @@ func BenchmarkRemoteKeySet_GetKey_Cached(b *testing.B) {
 	server, _ := mockJWKSServer(b, 10*time.Minute)
 	defer server.Close()
 
-	rks := NewRemoteKeySet(ctx, server.URL, nil)
+	rks := oidc.NewRemoteKeySet(ctx, server.URL, nil)
 	defer rks.Stop()
 
 	// 预热缓存
@@ -300,7 +301,7 @@ func BenchmarkRemoteKeySet_GetKey_Concurrent(b *testing.B) {
 	server, _ := mockJWKSServer(b, 10*time.Minute)
 	defer server.Close()
 
-	rks := NewRemoteKeySet(ctx, server.URL, nil)
+	rks := oidc.NewRemoteKeySet(ctx, server.URL, nil)
 	defer rks.Stop()
 
 	// 预热缓存

@@ -33,6 +33,15 @@ type RegisteredClient interface {
 	// 对于 Public Client，此方法应直接返回 nil。
 	// 对于 Confidential Client，实现层应处理哈希比对 (如 bcrypt/argon2)。
 	ValidateSecret(ctx context.Context, hasher Hasher, secret string) error
+
+	// 提供给Redis一个序列化和反序列化的方法
+	Serialize() (string, error)
+	Deserialize(string) error
+}
+
+// ClientFactory 定义了创建客户端的接口。
+type ClientFactory interface {
+	New() RegisteredClient
 }
 
 // ClientMetadata 包含客户端注册信息
@@ -174,6 +183,7 @@ type DeviceCodeSession struct {
 	LastPolled      time.Time
 	Status          string // "pending", "allowed", "denied"
 	UserID          BinaryUUID
+	AuthTime        time.Time
 	AuthorizedScope string
 }
 
@@ -189,6 +199,9 @@ type DeviceCodeStorage interface {
 
 	// UpdateDeviceCodeSession 更新会话状态 (例如用户同意后)
 	UpdateDeviceCodeSession(ctx context.Context, deviceCode string, session *DeviceCodeSession) error
+
+	// RemoveDeviceCodeSession 删除设备码会话及其关联索引
+	RemoveDeviceCodeSession(ctx context.Context, deviceCode string) error
 }
 
 // ---------------------------------------------------------------------------
@@ -227,7 +240,7 @@ type TokenStorage interface {
 	RevokeRefreshToken(ctx context.Context, tokenID Hash256) error
 
 	// RevokeTokensForUser 撤销指定用户的所有令牌 (例如用户登出或修改密码时)。
-	RevokeTokensForUser(ctx context.Context, userID BinaryUUID) error
+	RevokeTokensForUser(ctx context.Context, userID BinaryUUID) ([]Hash256, error)
 }
 
 // TokenCache 定义了 Refresh Token 的缓存接口
@@ -240,6 +253,9 @@ type TokenCache interface {
 
 	// InvalidateRefreshToken 从缓存移除
 	InvalidateRefreshToken(ctx context.Context, tokenID Hash256) error
+
+	// InvalidateRefreshTokens 批量从缓存移除
+	InvalidateRefreshTokens(ctx context.Context, tokenIDs []Hash256) error
 }
 
 // TokenRotationStorage 负责快速检测刷新令牌的轮换状态。
@@ -312,6 +328,8 @@ type DistributedLock interface {
 
 // UserInfoGetter 用于从业务系统获取用户信息，以填充 ID Token 或响应 UserInfo 端点。
 type UserInfoGetter interface {
+	// 测试中需要添加可查询的用户信息
+	CreateUserInfo(ctx context.Context, userInfo *UserInfo) error
 	// GetUserInfo 根据 UserID 和请求的 Scopes 返回用户信息。
 	// scope 参数允许实现层根据权限过滤返回字段 (例如：没有 'email' scope 就不查邮箱)。
 	GetUserInfo(ctx context.Context, userID BinaryUUID, scopes []string) (*UserInfo, error)

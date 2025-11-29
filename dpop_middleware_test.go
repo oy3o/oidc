@@ -1,4 +1,4 @@
-package oidc
+package oidc_test
 
 import (
 	"context"
@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/oy3o/oidc"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -19,17 +20,17 @@ import (
 func newTestHandler(t *testing.T, wantJKT string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// 验证 context 中是否存在 DPoP claims
-		claims, ok := DPoPFromContext(r.Context())
+		claims, ok := oidc.DPoPFromContext(r.Context())
 		if wantJKT != "" {
 			require.True(t, ok, "handler should have DPoP claims in context")
 			require.NotNil(t, claims)
 			assert.Equal(t, wantJKT, claims.JKT)
 
 			// 验证 ExtractDPoPJKT 辅助函数
-			assert.Equal(t, wantJKT, ExtractDPoPJKT(r.Context()))
+			assert.Equal(t, wantJKT, oidc.ExtractDPoPJKT(r.Context()))
 		} else {
 			assert.False(t, ok, "handler should NOT have DPoP claims in context")
-			assert.Empty(t, ExtractDPoPJKT(r.Context()))
+			assert.Empty(t, oidc.ExtractDPoPJKT(r.Context()))
 		}
 		w.WriteHeader(http.StatusOK)
 	})
@@ -40,7 +41,7 @@ func newTestHandler(t *testing.T, wantJKT string) http.Handler {
 // -----------------------------------------------------------------------------
 
 func TestDPoPOptionalMiddleware(t *testing.T) {
-	storage := NewMockStorage()
+	storage := NewTestStorage(t)
 	key := generateECKey(t)
 
 	// 准备参数
@@ -53,7 +54,7 @@ func TestDPoPOptionalMiddleware(t *testing.T) {
 		req := httptest.NewRequest(htm, htu, nil)
 		w := httptest.NewRecorder()
 
-		handler := DPoPOptionalMiddleware(storage)(newTestHandler(t, ""))
+		handler := oidc.DPoPOptionalMiddleware(storage)(newTestHandler(t, ""))
 		handler.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusOK, w.Code)
@@ -73,8 +74,8 @@ func TestDPoPOptionalMiddleware(t *testing.T) {
 		// 为简单起见，我们修改 testHandler 逻辑或者信任 VerifyDPoPProof
 		// 这里我们信任 VerifyDPoPProof 的结果，只验证流程
 
-		handler := DPoPOptionalMiddleware(storage)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			claims, ok := DPoPFromContext(r.Context())
+		handler := oidc.DPoPOptionalMiddleware(storage)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			claims, ok := oidc.DPoPFromContext(r.Context())
 			require.True(t, ok)
 			require.NotEmpty(t, claims.JKT)
 			w.WriteHeader(http.StatusOK)
@@ -93,7 +94,7 @@ func TestDPoPOptionalMiddleware(t *testing.T) {
 		req.Header.Set("DPoP", proof)
 		w := httptest.NewRecorder()
 
-		handler := DPoPOptionalMiddleware(storage)(newTestHandler(t, ""))
+		handler := oidc.DPoPOptionalMiddleware(storage)(newTestHandler(t, ""))
 		handler.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusUnauthorized, w.Code)
@@ -102,7 +103,7 @@ func TestDPoPOptionalMiddleware(t *testing.T) {
 }
 
 func TestDPoPRequiredMiddleware(t *testing.T) {
-	storage := NewMockStorage()
+	storage := NewTestStorage(t)
 	key := generateECKey(t)
 	htm, htu := "GET", "http://example.com/resource"
 
@@ -111,7 +112,7 @@ func TestDPoPRequiredMiddleware(t *testing.T) {
 		req := httptest.NewRequest(htm, htu, nil)
 		w := httptest.NewRecorder()
 
-		handler := DPoPRequiredMiddleware(storage)(newTestHandler(t, ""))
+		handler := oidc.DPoPRequiredMiddleware(storage)(newTestHandler(t, ""))
 		handler.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusUnauthorized, w.Code)
@@ -126,8 +127,8 @@ func TestDPoPRequiredMiddleware(t *testing.T) {
 		req.Header.Set("DPoP", proof)
 		w := httptest.NewRecorder()
 
-		handler := DPoPRequiredMiddleware(storage)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			claims, ok := DPoPFromContext(r.Context())
+		handler := oidc.DPoPRequiredMiddleware(storage)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			claims, ok := oidc.DPoPFromContext(r.Context())
 			require.True(t, ok)
 			require.NotEmpty(t, claims.JKT)
 			w.WriteHeader(http.StatusOK)
@@ -184,7 +185,7 @@ func TestBuildRequestURI_Internal(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			req := tt.reqSetup()
-			got := buildRequestURI(req)
+			got := oidc.BuildRequestURI(req)
 			assert.Equal(t, tt.wantURI, got)
 		})
 	}
@@ -194,32 +195,32 @@ func TestDPoPFromContext_Helpers(t *testing.T) {
 	ctx := context.Background()
 
 	// 1. Empty Context
-	claims, ok := DPoPFromContext(ctx)
+	claims, ok := oidc.DPoPFromContext(ctx)
 	assert.False(t, ok)
 	assert.Nil(t, claims)
-	assert.Empty(t, ExtractDPoPJKT(ctx))
+	assert.Empty(t, oidc.ExtractDPoPJKT(ctx))
 
 	// 2. With Value
 	expectedJKT := "test-jkt"
-	ctx = context.WithValue(ctx, dpopContextKey{}, &DPoPClaims{JKT: expectedJKT})
+	ctx = context.WithValue(ctx, oidc.DpopContextKey{}, &oidc.DPoPClaims{JKT: expectedJKT})
 
-	claims, ok = DPoPFromContext(ctx)
+	claims, ok = oidc.DPoPFromContext(ctx)
 	assert.True(t, ok)
 	assert.Equal(t, expectedJKT, claims.JKT)
-	assert.Equal(t, expectedJKT, ExtractDPoPJKT(ctx))
+	assert.Equal(t, expectedJKT, oidc.ExtractDPoPJKT(ctx))
 }
 
 func TestShouldUseDPoP(t *testing.T) {
-	assert.True(t, ShouldUseDPoP("/oauth/token"))
-	assert.True(t, ShouldUseDPoP("/api/userinfo"))
-	assert.True(t, ShouldUseDPoP("/introspect"))
-	assert.False(t, ShouldUseDPoP("/authorize"))
-	assert.False(t, ShouldUseDPoP("/health"))
+	assert.True(t, oidc.ShouldUseDPoP("/oauth/token"))
+	assert.True(t, oidc.ShouldUseDPoP("/api/userinfo"))
+	assert.True(t, oidc.ShouldUseDPoP("/introspect"))
+	assert.False(t, oidc.ShouldUseDPoP("/authorize"))
+	assert.False(t, oidc.ShouldUseDPoP("/health"))
 }
 
 func TestDPoP_ReplayProtection(t *testing.T) {
-	storage := NewMockStorage() // 实现了 ReplayCache
-	key := generateECKey(t)     // 辅助函数在 dpop_test.go 中
+	storage := NewTestStorage(t) // 实现了 ReplayCache
+	key := generateECKey(t)      // 辅助函数在 dpop_test.go 中
 	htm, htu := "POST", "http://example.com/resource"
 	jti := uuid.NewString()
 
@@ -230,11 +231,11 @@ func TestDPoP_ReplayProtection(t *testing.T) {
 	req.Header.Set("DPoP", proof)
 
 	// 第一次验证：应该成功
-	_, err := VerifyDPoPProof(context.Background(), req, nil, storage, htm, htu)
+	_, err := oidc.VerifyDPoPProof(context.Background(), req, nil, storage, htm, htu)
 	require.NoError(t, err, "First use of DPoP proof should succeed")
 
 	// 第二次验证（重放）：应该失败
-	_, err = VerifyDPoPProof(context.Background(), req, nil, storage, htm, htu)
+	_, err = oidc.VerifyDPoPProof(context.Background(), req, nil, storage, htm, htu)
 	assert.Error(t, err, "Replay of DPoP proof should fail")
 	assert.Contains(t, err.Error(), "jti has been used")
 }

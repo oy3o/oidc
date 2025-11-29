@@ -47,7 +47,7 @@ func EndSession(ctx context.Context, storage Storage, verifier TokenVerifier, re
 	// 2. 执行登出逻辑
 	// 2.1 撤销该用户的所有 Refresh Tokens
 	if userID != (BinaryUUID{}) {
-		if err := storage.RevokeTokensForUser(ctx, userID); err != nil {
+		if _, err := storage.RevokeTokensForUser(ctx, userID); err != nil {
 			return "", fmt.Errorf("failed to revoke user tokens: %w", err)
 		}
 	}

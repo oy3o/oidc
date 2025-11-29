@@ -1,4 +1,4 @@
-package oidc
+package oidc_test
 
 import (
 	"context"
@@ -7,22 +7,23 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/oy3o/oidc"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 // setupSessionTest 初始化 Session 测试环境
-func setupSessionTest(t *testing.T) (*Server, *MockStorage, RegisteredClient) {
-	storage := NewMockStorage()
+func setupSessionTest(t *testing.T) (*oidc.Server, oidc.Storage, oidc.RegisteredClient) {
+	storage := NewTestStorage(t)
 	hasher := &mockHasher{} // 假设已在 authorize_test.go 定义
 
 	// 初始化 SecretManager 并添加 HMAC 密钥
-	sm := NewSecretManager()
+	sm := oidc.NewSecretManager()
 	// 32字节的 hex string
 	err := sm.AddKey("test-hmac-key", "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff")
 	require.NoError(t, err)
 
-	cfg := ServerConfig{
+	cfg := oidc.ServerConfig{
 		Issuer:          "https://auth.example.com",
 		Storage:         storage,
 		Hasher:          hasher,
@@ -32,17 +33,17 @@ func setupSessionTest(t *testing.T) (*Server, *MockStorage, RegisteredClient) {
 		RefreshTokenTTL: 24 * time.Hour,
 	}
 
-	server, err := NewServer(cfg)
+	server, err := oidc.NewServer(cfg)
 	require.NoError(t, err)
 
 	// 生成签名密钥
-	_, err = server.KeyManager().Generate(context.Background(), KEY_RSA, true)
+	_, err = server.KeyManager().Generate(context.Background(), oidc.KEY_RSA, true)
 	require.NoError(t, err)
 
 	// 创建客户端
 	// 注意：session.go 中简化了逻辑，暂时复用 RedirectURIs 作为 PostLogoutRedirectURIs 的白名单
-	clientID := BinaryUUID(uuid.New())
-	clientMeta := ClientMetadata{
+	clientID := oidc.BinaryUUID(uuid.New())
+	clientMeta := oidc.ClientMetadata{
 		ID:           clientID,
 		RedirectURIs: []string{"https://client.example.com/cb", "https://client.example.com/logout_cb"},
 		GrantTypes:   []string{"authorization_code"},
@@ -61,22 +62,22 @@ func TestEndSession_Success(t *testing.T) {
 	ctx := context.Background()
 
 	// 1. 准备数据：生成用户的 Token
-	userID := BinaryUUID(uuid.New())
+	userID := oidc.BinaryUUID(uuid.New())
 
 	// 生成 OIDC Token 套件 (ID Token + AT + RT)
-	issueReq := &IssuerRequest{
+	issueReq := &oidc.IssuerRequest{
 		ClientID: client.GetID(),
 		UserID:   userID,
 		Scopes:   "openid profile",
 		Audience: []string{client.GetID().String()},
 		Nonce:    "test-nonce",
 	}
-	tokens, err := server.issuer.IssueOIDCTokens(ctx, issueReq)
+	tokens, err := server.Issuer().IssueOIDCTokens(ctx, issueReq)
 	require.NoError(t, err)
 
 	// 手动保存 RT 到存储 (模拟 Exchange 过程)
-	rtHash := RefreshToken(tokens.RefreshToken).HashForDB()
-	storage.CreateRefreshToken(ctx, &RefreshTokenSession{
+	rtHash := oidc.RefreshToken(tokens.RefreshToken).HashForDB()
+	storage.CreateRefreshToken(ctx, &oidc.RefreshTokenSession{
 		ID:        rtHash,
 		ClientID:  client.GetID(),
 		UserID:    userID,
@@ -84,7 +85,7 @@ func TestEndSession_Success(t *testing.T) {
 	})
 
 	// 2. 构造 EndSessionRequest
-	req := &EndSessionRequest{
+	req := &oidc.EndSessionRequest{
 		IDTokenHint:           tokens.IDToken,
 		PostLogoutRedirectURI: "https://client.example.com/logout_cb",
 		State:                 "logout-state",
@@ -93,7 +94,7 @@ func TestEndSession_Success(t *testing.T) {
 
 	// 3. 执行登出
 	// Server 实现了 TokenVerifier 接口
-	redirectURL, err := EndSession(ctx, storage, server, req)
+	redirectURL, err := oidc.EndSession(ctx, storage, server, req)
 	require.NoError(t, err)
 
 	// 4. 验证重定向 URL
@@ -104,7 +105,7 @@ func TestEndSession_Success(t *testing.T) {
 
 	// 5. 验证 Refresh Token 是否被撤销 (RevokeTokensForUser)
 	_, err = storage.GetRefreshToken(ctx, rtHash)
-	assert.ErrorIs(t, err, ErrTokenNotFound, "Refresh token should be revoked")
+	assert.ErrorIs(t, err, oidc.ErrTokenNotFound, "Refresh token should be revoked")
 
 	// 6. 验证 Access Token 是否被加入黑名单 (Revoke)
 	claims, _ := server.ParseAccessToken(ctx, tokens.AccessToken)
@@ -118,21 +119,21 @@ func TestEndSession_InvalidRedirectURI(t *testing.T) {
 	ctx := context.Background()
 
 	// 1. 生成 ID Token
-	issueReq := &IssuerRequest{
+	issueReq := &oidc.IssuerRequest{
 		ClientID: client.GetID(),
-		UserID:   BinaryUUID(uuid.New()),
+		UserID:   oidc.BinaryUUID(uuid.New()),
 		Scopes:   "openid",
 	}
-	tokens, _ := server.issuer.IssueOIDCTokens(ctx, issueReq)
+	tokens, _ := server.Issuer().IssueOIDCTokens(ctx, issueReq)
 
 	// 2. 请求未注册的 Redirect URI
-	req := &EndSessionRequest{
+	req := &oidc.EndSessionRequest{
 		IDTokenHint:           tokens.IDToken,
 		PostLogoutRedirectURI: "https://attacker.com/logout",
 		State:                 "xyz",
 	}
 
-	redirectURL, err := EndSession(ctx, storage, server, req)
+	redirectURL, err := oidc.EndSession(ctx, storage, server, req)
 	require.NoError(t, err)
 
 	// 3. 验证不返回重定向 URL (但在内部可能已经执行了登出逻辑)
@@ -144,12 +145,12 @@ func TestEndSession_NoHint(t *testing.T) {
 	ctx := context.Background()
 
 	// 1. 没有 ID Token Hint
-	req := &EndSessionRequest{
+	req := &oidc.EndSessionRequest{
 		PostLogoutRedirectURI: "https://client.example.com/logout_cb",
 	}
 
 	// 2. 执行
-	redirectURL, err := EndSession(ctx, storage, server, req)
+	redirectURL, err := oidc.EndSession(ctx, storage, server, req)
 	require.NoError(t, err)
 
 	// 3. 验证
@@ -162,13 +163,13 @@ func TestEndSession_InvalidHint(t *testing.T) {
 	ctx := context.Background()
 
 	// 1. 损坏的 ID Token
-	req := &EndSessionRequest{
+	req := &oidc.EndSessionRequest{
 		IDTokenHint:           "invalid.jwt.token",
 		PostLogoutRedirectURI: "https://client.example.com/logout_cb",
 	}
 
 	// 2. 执行
-	redirectURL, err := EndSession(ctx, storage, server, req)
+	redirectURL, err := oidc.EndSession(ctx, storage, server, req)
 	// session.go 的实现通常会忽略无效的 hint 并继续处理（避免登出阻塞），
 	// 但由于解析失败，拿不到 ClientID，所以无法构建重定向
 	require.NoError(t, err)
@@ -180,20 +181,20 @@ func TestEndSession_RevokeOnlyAccessToken(t *testing.T) {
 	ctx := context.Background()
 
 	// 1. 生成 Token (不使用 ID Token Hint，只传 Access Token)
-	issueReq := &IssuerRequest{
+	issueReq := &oidc.IssuerRequest{
 		ClientID: client.GetID(),
-		UserID:   BinaryUUID(uuid.New()),
+		UserID:   oidc.BinaryUUID(uuid.New()),
 		Scopes:   "openid",
 	}
-	tokens, _ := server.issuer.IssueOAuthTokens(ctx, issueReq)
+	tokens, _ := server.Issuer().IssueOAuthTokens(ctx, issueReq)
 
 	// 2. 请求
-	req := &EndSessionRequest{
+	req := &oidc.EndSessionRequest{
 		AccessToken: tokens.AccessToken,
 	}
 
 	// 3. 执行
-	_, err := EndSession(ctx, storage, server, req)
+	_, err := oidc.EndSession(ctx, storage, server, req)
 	require.NoError(t, err)
 
 	// 4. 验证 Access Token 黑名单

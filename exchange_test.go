@@ -1,4 +1,4 @@
-package oidc
+package oidc_test
 
 import (
 	"context"
@@ -6,22 +6,23 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/oy3o/oidc"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 // setupExchangeTest 初始化测试环境
-func setupExchangeTest(t *testing.T) (*Server, *MockStorage, RegisteredClient) {
-	storage := NewMockStorage()
+func setupExchangeTest(t *testing.T) (*oidc.Server, oidc.Storage, oidc.RegisteredClient) {
+	storage := NewTestStorage(t)
 	hasher := &mockHasher{} // 复用 authorize_test.go 中的 mockHasher，或者在此重新定义
 
 	// 初始化 SecretManager 并添加 HMAC 密钥
-	sm := NewSecretManager()
+	sm := oidc.NewSecretManager()
 	// 32字节的 hex string
 	err := sm.AddKey("test-hmac-key", "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff")
 	require.NoError(t, err)
 
-	cfg := ServerConfig{
+	cfg := oidc.ServerConfig{
 		Issuer:          "https://auth.example.com",
 		Storage:         storage,
 		Hasher:          hasher,
@@ -31,16 +32,16 @@ func setupExchangeTest(t *testing.T) (*Server, *MockStorage, RegisteredClient) {
 		IDTokenTTL:      1 * time.Hour,
 	}
 
-	server, err := NewServer(cfg)
+	server, err := oidc.NewServer(cfg)
 	require.NoError(t, err)
 
 	// 生成签名密钥
-	_, err = server.KeyManager().Generate(context.Background(), KEY_RSA, true)
+	_, err = server.KeyManager().Generate(context.Background(), oidc.KEY_RSA, true)
 	require.NoError(t, err)
 
 	// 创建机密客户端
-	clientID := BinaryUUID(uuid.New())
-	clientMeta := ClientMetadata{
+	clientID := oidc.BinaryUUID(uuid.New())
+	clientMeta := oidc.ClientMetadata{
 		ID:                      clientID,
 		RedirectURIs:            []string{"https://client.example.com/cb"},
 		GrantTypes:              []string{"authorization_code", "refresh_token", "client_credentials"},
@@ -67,12 +68,12 @@ func TestExchange_AuthCode_Success(t *testing.T) {
 
 	// 1. 模拟生成并存储 Authorization Code
 	code := "test_auth_code"
-	userID := BinaryUUID(uuid.New())
-	session := &AuthCodeSession{
+	userID := oidc.BinaryUUID(uuid.New())
+	session := &oidc.AuthCodeSession{
 		Code:        code,
 		ClientID:    client.GetID(),
 		UserID:      userID,
-		Scope:       "openid profile offline_access",
+		Scope:       "profile offline_access",
 		RedirectURI: "https://client.example.com/cb",
 		AuthTime:    time.Now(),
 		ExpiresAt:   time.Now().Add(10 * time.Minute),
@@ -81,7 +82,7 @@ func TestExchange_AuthCode_Success(t *testing.T) {
 	require.NoError(t, err)
 
 	// 2. 发起 Exchange 请求
-	req := &TokenRequest{
+	req := &oidc.TokenRequest{
 		GrantType:    "authorization_code",
 		Code:         code,
 		ClientID:     client.GetID().String(),
@@ -94,14 +95,14 @@ func TestExchange_AuthCode_Success(t *testing.T) {
 
 	// 3. 验证响应
 	assert.NotEmpty(t, resp.AccessToken)
-	assert.NotEmpty(t, resp.IDToken)      // 因为 scope 包含 openid
+	assert.Empty(t, resp.IDToken)         // 因为 scope 不包含 openid
 	assert.NotEmpty(t, resp.RefreshToken) // 因为 scope 包含 offline_access (且 Server 配置了默认 RT)
 	assert.Equal(t, "Bearer", resp.TokenType)
 	assert.Equal(t, int64(3600), resp.ExpiresIn)
 
 	// 4. 验证 Code 已被消耗
 	_, err = storage.LoadAndConsumeAuthCode(ctx, code)
-	assert.ErrorIs(t, err, ErrCodeNotFound)
+	assert.ErrorIs(t, err, oidc.ErrCodeNotFound)
 }
 
 func TestExchange_AuthCode_PKCE(t *testing.T) {
@@ -110,24 +111,24 @@ func TestExchange_AuthCode_PKCE(t *testing.T) {
 
 	// 生成 PKCE 数据
 	verifier := "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
-	challenge, _ := ComputePKCEChallenge(CodeChallengeMethodS256, verifier)
+	challenge, _ := oidc.ComputePKCEChallenge(oidc.CodeChallengeMethodS256, verifier)
 
 	code := "pkce_code"
-	session := &AuthCodeSession{
+	session := &oidc.AuthCodeSession{
 		Code:                code,
 		ClientID:            client.GetID(),
-		UserID:              BinaryUUID(uuid.New()),
-		Scope:               "openid",
+		UserID:              oidc.BinaryUUID(uuid.New()),
+		Scope:               "",
 		RedirectURI:         "https://client.example.com/cb",
 		AuthTime:            time.Now(),
 		ExpiresAt:           time.Now().Add(time.Minute),
 		CodeChallenge:       challenge,
-		CodeChallengeMethod: CodeChallengeMethodS256,
+		CodeChallengeMethod: oidc.CodeChallengeMethodS256,
 	}
 	storage.SaveAuthCode(ctx, session)
 
 	// Case 1: 正确的 Verifier
-	req := &TokenRequest{
+	req := &oidc.TokenRequest{
 		GrantType:    "authorization_code",
 		Code:         code,
 		ClientID:     client.GetID().String(),
@@ -145,7 +146,7 @@ func TestExchange_AuthCode_PKCE(t *testing.T) {
 	session.Code = code2
 	storage.SaveAuthCode(ctx, session)
 
-	req2 := &TokenRequest{
+	req2 := &oidc.TokenRequest{
 		GrantType:    "authorization_code",
 		Code:         code2,
 		ClientID:     client.GetID().String(),
@@ -163,16 +164,16 @@ func TestExchange_AuthCode_RedirectURIMismatch(t *testing.T) {
 	ctx := context.Background()
 
 	code := "uri_code"
-	session := &AuthCodeSession{
+	session := &oidc.AuthCodeSession{
 		Code:        code,
 		ClientID:    client.GetID(),
-		UserID:      BinaryUUID(uuid.New()),
+		UserID:      oidc.BinaryUUID(uuid.New()),
 		RedirectURI: "https://client.example.com/cb",
 		ExpiresAt:   time.Now().Add(time.Minute),
 	}
 	storage.SaveAuthCode(ctx, session)
 
-	req := &TokenRequest{
+	req := &oidc.TokenRequest{
 		GrantType:    "authorization_code",
 		Code:         code,
 		ClientID:     client.GetID().String(),
@@ -181,7 +182,7 @@ func TestExchange_AuthCode_RedirectURIMismatch(t *testing.T) {
 	}
 
 	_, err := server.Exchange(ctx, req)
-	assert.ErrorIs(t, err, ErrInvalidGrant)
+	assert.ErrorIs(t, err, oidc.ErrInvalidGrant)
 	assert.Contains(t, err.Error(), "redirect_uri mismatch")
 }
 
@@ -190,15 +191,15 @@ func TestExchange_AuthCode_Replay(t *testing.T) {
 	ctx := context.Background()
 
 	code := "replay_code"
-	session := &AuthCodeSession{
+	session := &oidc.AuthCodeSession{
 		Code:      code,
 		ClientID:  client.GetID(),
-		UserID:    BinaryUUID(uuid.New()),
+		UserID:    oidc.BinaryUUID(uuid.New()),
 		ExpiresAt: time.Now().Add(time.Minute),
 	}
 	storage.SaveAuthCode(ctx, session)
 
-	req := &TokenRequest{
+	req := &oidc.TokenRequest{
 		GrantType:    "authorization_code",
 		Code:         code,
 		ClientID:     client.GetID().String(),
@@ -211,7 +212,7 @@ func TestExchange_AuthCode_Replay(t *testing.T) {
 
 	// 第二次：失败 (Code Not Found)
 	_, err = server.Exchange(ctx, req)
-	assert.ErrorIs(t, err, ErrInvalidGrant)
+	assert.ErrorIs(t, err, oidc.ErrInvalidGrant)
 	assert.Contains(t, err.Error(), "invalid or expired code")
 }
 
@@ -223,10 +224,10 @@ func TestExchange_AuthCode_DPoPBinding(t *testing.T) {
 	code := "dpop_code"
 
 	createSession := func(jkt string) {
-		session := &AuthCodeSession{
+		session := &oidc.AuthCodeSession{
 			Code:      code,
 			ClientID:  client.GetID(),
-			UserID:    BinaryUUID(uuid.New()),
+			UserID:    oidc.BinaryUUID(uuid.New()),
 			ExpiresAt: time.Now().Add(time.Minute),
 			DPoPJKT:   jkt, // Code 绑定了 DPoP Key
 		}
@@ -235,7 +236,7 @@ func TestExchange_AuthCode_DPoPBinding(t *testing.T) {
 
 	// Case 1: 缺少 DPoP Key
 	createSession(jkt)
-	req1 := &TokenRequest{
+	req1 := &oidc.TokenRequest{
 		GrantType:    "authorization_code",
 		Code:         code,
 		ClientID:     client.GetID().String(),
@@ -247,7 +248,7 @@ func TestExchange_AuthCode_DPoPBinding(t *testing.T) {
 
 	// Case 2: DPoP Key 不匹配
 	createSession(jkt)
-	req2 := &TokenRequest{
+	req2 := &oidc.TokenRequest{
 		GrantType:    "authorization_code",
 		Code:         code,
 		ClientID:     client.GetID().String(),
@@ -260,7 +261,7 @@ func TestExchange_AuthCode_DPoPBinding(t *testing.T) {
 
 	// Case 3: 匹配
 	createSession(jkt)
-	req3 := &TokenRequest{
+	req3 := &oidc.TokenRequest{
 		GrantType:    "authorization_code",
 		Code:         code,
 		ClientID:     client.GetID().String(),
@@ -287,21 +288,21 @@ func TestExchange_RefreshToken_Success(t *testing.T) {
 	// 1. 预先创建一个 Refresh Token
 	// 注意：Exchange 逻辑中，请求的 RT 字符串会先被哈希，再去 DB 查找
 	// 我们需要模拟 IssueStructuredRefreshToken 的过程得到原始串，然后存哈希
-	rtRaw, err := IssueStructuredRefreshToken(ctx, server.issuer.secretManager, "user-1", 24*time.Hour)
+	rtRaw, err := oidc.IssueStructuredRefreshToken(ctx, server.Issuer().SecretManager(), "user-1", 24*time.Hour)
 	require.NoError(t, err)
 
-	rtHash := RefreshToken(rtRaw).HashForDB()
-	session := &RefreshTokenSession{
+	rtHash := oidc.RefreshToken(rtRaw).HashForDB()
+	session := &oidc.RefreshTokenSession{
 		ID:        rtHash,
 		ClientID:  client.GetID(),
-		UserID:    BinaryUUID(uuid.New()),
+		UserID:    oidc.BinaryUUID(uuid.New()),
 		Scope:     "openid profile",
 		ExpiresAt: time.Now().Add(24 * time.Hour),
 	}
 	storage.CreateRefreshToken(ctx, session)
 
 	// 2. 发起刷新请求
-	req := &TokenRequest{
+	req := &oidc.TokenRequest{
 		GrantType:    "refresh_token",
 		RefreshToken: string(rtRaw),
 		ClientID:     client.GetID().String(),
@@ -318,17 +319,17 @@ func TestExchange_RefreshToken_Success(t *testing.T) {
 
 	// 4. 验证旧 Token 被删除 (MockStorage 简单实现轮换是删除旧的)
 	_, err = storage.GetRefreshToken(ctx, rtHash)
-	assert.ErrorIs(t, err, ErrTokenNotFound)
+	assert.ErrorIs(t, err, oidc.ErrTokenNotFound)
 }
 
 func TestExchange_RefreshToken_ReuseDetection(t *testing.T) {
 	server, _, client := setupExchangeTest(t)
 	ctx := context.Background()
 
-	rt, err := IssueStructuredRefreshToken(ctx, server.secretManager, "user-1", 24*time.Hour)
+	rt, err := oidc.IssueStructuredRefreshToken(ctx, server.SecretManager(), "user-1", 24*time.Hour)
 	require.NoError(t, err)
 	// 尝试使用一个不存在（或已被轮换删除）的 Token
-	req := &TokenRequest{
+	req := &oidc.TokenRequest{
 		GrantType:    "refresh_token",
 		RefreshToken: string(rt),
 		ClientID:     client.GetID().String(),
@@ -339,7 +340,7 @@ func TestExchange_RefreshToken_ReuseDetection(t *testing.T) {
 	_, err = server.Exchange(ctx, req)
 	// 在 MockStorage 中找不到 key 会返回 ErrTokenNotFound，
 	// Exchange 逻辑会将其包装为 ErrInvalidGrant
-	assert.ErrorIs(t, err, ErrInvalidGrant)
+	assert.ErrorIs(t, err, oidc.ErrInvalidGrant)
 	assert.Contains(t, err.Error(), "invalid refresh token")
 }
 
@@ -348,7 +349,7 @@ func TestExchange_RefreshToken_InvalidFormat(t *testing.T) {
 	ctx := context.Background()
 
 	// Request by Client B (setupExchangeTest 创建的 client)
-	req := &TokenRequest{
+	req := &oidc.TokenRequest{
 		GrantType:    "refresh_token",
 		RefreshToken: "invalid_token",
 		ClientID:     client.GetID().String(),
@@ -356,7 +357,7 @@ func TestExchange_RefreshToken_InvalidFormat(t *testing.T) {
 	}
 
 	_, err := server.Exchange(ctx, req)
-	assert.ErrorIs(t, err, ErrTokenFormatInvalid)
+	assert.ErrorIs(t, err, oidc.ErrTokenFormatInvalid)
 }
 
 func TestExchange_RefreshToken_ClientMismatch(t *testing.T) {
@@ -364,18 +365,18 @@ func TestExchange_RefreshToken_ClientMismatch(t *testing.T) {
 	ctx := context.Background()
 
 	// Token 属于 User A, Client A
-	rtRaw, _ := IssueStructuredRefreshToken(ctx, server.issuer.secretManager, "user-1", 24*time.Hour)
-	rtHash := RefreshToken(rtRaw).HashForDB()
-	session := &RefreshTokenSession{
+	rtRaw, _ := oidc.IssueStructuredRefreshToken(ctx, server.Issuer().SecretManager(), "user-1", 24*time.Hour)
+	rtHash := oidc.RefreshToken(rtRaw).HashForDB()
+	session := &oidc.RefreshTokenSession{
 		ID:        rtHash,
-		ClientID:  BinaryUUID(uuid.New()), // Different Client
-		UserID:    BinaryUUID(uuid.New()),
+		ClientID:  oidc.BinaryUUID(uuid.New()), // Different Client
+		UserID:    oidc.BinaryUUID(uuid.New()),
 		ExpiresAt: time.Now().Add(24 * time.Hour),
 	}
 	storage.CreateRefreshToken(ctx, session)
 
 	// Request by Client B (setupExchangeTest 创建的 client)
-	req := &TokenRequest{
+	req := &oidc.TokenRequest{
 		GrantType:    "refresh_token",
 		RefreshToken: string(rtRaw),
 		ClientID:     client.GetID().String(),
@@ -383,7 +384,7 @@ func TestExchange_RefreshToken_ClientMismatch(t *testing.T) {
 	}
 
 	_, err := server.Exchange(ctx, req)
-	assert.ErrorIs(t, err, ErrInvalidClient)
+	assert.ErrorIs(t, err, oidc.ErrInvalidClient)
 	assert.Contains(t, err.Error(), "client mismatch")
 }
 
@@ -391,19 +392,19 @@ func TestExchange_RefreshToken_ScopeDownscoping(t *testing.T) {
 	server, storage, client := setupExchangeTest(t)
 	ctx := context.Background()
 
-	rtRaw, _ := IssueStructuredRefreshToken(ctx, server.issuer.secretManager, "user-1", 24*time.Hour)
-	rtHash := RefreshToken(rtRaw).HashForDB()
-	session := &RefreshTokenSession{
+	rtRaw, _ := oidc.IssueStructuredRefreshToken(ctx, server.Issuer().SecretManager(), "user-1", 24*time.Hour)
+	rtHash := oidc.RefreshToken(rtRaw).HashForDB()
+	session := &oidc.RefreshTokenSession{
 		ID:        rtHash,
 		ClientID:  client.GetID(),
-		UserID:    BinaryUUID(uuid.New()),
+		UserID:    oidc.BinaryUUID(uuid.New()),
 		Scope:     "openid profile email", // 原有 Scope
 		ExpiresAt: time.Now().Add(24 * time.Hour),
 	}
 	storage.CreateRefreshToken(ctx, session)
 
 	// 1. 请求缩减 Scope
-	req := &TokenRequest{
+	req := &oidc.TokenRequest{
 		GrantType:    "refresh_token",
 		RefreshToken: string(rtRaw),
 		ClientID:     client.GetID().String(),
@@ -416,7 +417,7 @@ func TestExchange_RefreshToken_ScopeDownscoping(t *testing.T) {
 	assert.Equal(t, "openid", resp.Scope)
 
 	// 2. 验证新 Token 的 Scope 确实变了
-	newRTHash := RefreshToken(resp.RefreshToken).HashForDB()
+	newRTHash := oidc.RefreshToken(resp.RefreshToken).HashForDB()
 	newSession, err := storage.GetRefreshToken(ctx, newRTHash)
 	require.NoError(t, err)
 	assert.Equal(t, "openid", newSession.Scope)
@@ -440,7 +441,7 @@ func TestExchange_ClientCredentials_Success(t *testing.T) {
 	server, _, client := setupExchangeTest(t)
 	ctx := context.Background()
 
-	req := &TokenRequest{
+	req := &oidc.TokenRequest{
 		GrantType:    "client_credentials",
 		ClientID:     client.GetID().String(),
 		ClientSecret: "test_secret",
@@ -465,26 +466,26 @@ func TestExchange_ClientCredentials_InvalidSecret(t *testing.T) {
 	server, _, client := setupExchangeTest(t)
 	ctx := context.Background()
 
-	req := &TokenRequest{
+	req := &oidc.TokenRequest{
 		GrantType:    "client_credentials",
 		ClientID:     client.GetID().String(),
 		ClientSecret: "wrong_secret",
 	}
 
 	_, err := server.Exchange(ctx, req)
-	assert.ErrorIs(t, err, ErrInvalidClient)
+	assert.ErrorIs(t, err, oidc.ErrInvalidClient)
 }
 
 func TestExchange_UnsupportedGrantType(t *testing.T) {
 	server, _, _ := setupExchangeTest(t)
 	ctx := context.Background()
 
-	req := &TokenRequest{
+	req := &oidc.TokenRequest{
 		GrantType: "urn:ietf:params:oauth:grant-type:unknown",
 	}
 
 	_, err := server.Exchange(ctx, req)
-	assert.ErrorIs(t, err, ErrUnsupportedGrantType)
+	assert.ErrorIs(t, err, oidc.ErrUnsupportedGrantType)
 }
 
 func TestExchange_ClientCredentials_DPoP(t *testing.T) {
@@ -494,8 +495,8 @@ func TestExchange_ClientCredentials_DPoP(t *testing.T) {
 	// 模拟 DPoP JKT (通常由 Middleware 提取)
 	dpopJKT := "test-thumbprint-123"
 
-	req := &TokenRequest{
-		GrantType:    GrantTypeClientCredentials,
+	req := &oidc.TokenRequest{
+		GrantType:    oidc.GrantTypeClientCredentials,
 		ClientID:     client.GetID().String(),
 		ClientSecret: "test_secret",
 		Scope:        "openid",

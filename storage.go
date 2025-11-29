@@ -18,15 +18,15 @@ import (
 //     This ensures eventual consistency and prevents stale cache data.
 //   - Deletes: DB -> Cache Delete
 type TieredStorage struct {
-	Cache
 	Persistence
+	Cache
 }
 
 // NewTieredStorage creates a new TieredStorage instance.
-func NewTieredStorage(cache Cache, db Persistence) *TieredStorage {
+func NewTieredStorage(db Persistence, cache Cache) *TieredStorage {
 	return &TieredStorage{
-		Cache:       cache,
 		Persistence: db,
+		Cache:       cache,
 	}
 }
 
@@ -178,20 +178,17 @@ func (s *TieredStorage) RevokeRefreshToken(ctx context.Context, tokenID Hash256)
 	return nil
 }
 
-func (s *TieredStorage) RevokeTokensForUser(ctx context.Context, userID BinaryUUID) error {
+func (s *TieredStorage) RevokeTokensForUser(ctx context.Context, userID BinaryUUID) ([]Hash256, error) {
 	// 1. DB
-	if err := s.Persistence.RevokeTokensForUser(ctx, userID); err != nil {
-		return err
+	ids, err := s.Persistence.RevokeTokensForUser(ctx, userID)
+	if err != nil {
+		return nil, err
 	}
 	// 2. Cache
-	// Hard to invalidate by UserID in Redis unless we maintain a set of tokens per user.
-	// For now, we accept that cache might be stale until TTL expires, OR we should implement
-	// a way to find user tokens in cache.
-	// Given the interfaces, we can't easily do it without scanning.
-	// We'll leave it as DB-only revocation, effectively "Eventual Consistency" for cache if we don't track it.
-	// Ideally, we should add `InvalidateUserTokens` to Cache interface.
-	// But for this task, I'll stick to what we have.
-	return nil
+	if err := s.Cache.InvalidateRefreshTokens(ctx, ids); err != nil {
+		log.Error().Err(err).Msg("Failed to invalidate refresh token cache")
+	}
+	return ids, nil
 }
 
 // ---------------------------------------------------------------------------

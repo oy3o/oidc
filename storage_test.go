@@ -1,23 +1,72 @@
-package oidc
+package oidc_test
 
 import (
 	"context"
 	"testing"
 
+	"github.com/alicebob/miniredis/v2"
+	"github.com/oy3o/oidc"
+	oidc_gorm "github.com/oy3o/oidc/gorm"
+	oidc_redis "github.com/oy3o/oidc/redis"
+	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
+type clientFactory struct{}
+
+func (f *clientFactory) New() oidc.RegisteredClient {
+	return &oidc_gorm.ClientModel{}
+}
+
+func NewTestCache(t *testing.T) oidc.Cache {
+	s := miniredis.RunT(t)
+
+	rdb := redis.NewClient(&redis.Options{
+		Addr: s.Addr(),
+	})
+	return oidc_redis.NewRedisStorage(rdb, &clientFactory{})
+}
+
+func NewTestDB() oidc.Persistence {
+	db, _ := gorm.Open(sqlite.Open("file::memory:"), &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Silent),
+	})
+
+	hasher := &mockHasher{}
+	storage := oidc_gorm.NewGormStorage(db, hasher, true)
+	db.AutoMigrate(
+		&oidc_gorm.ClientModel{},
+		&oidc_gorm.AuthCodeModel{},
+		&oidc_gorm.RefreshTokenModel{},
+		&oidc_gorm.BlacklistModel{},
+		&oidc_gorm.DeviceCodeModel{},
+		&oidc_gorm.UserModel{},
+		&oidc_gorm.PARModel{},
+		&oidc_gorm.KeyModel{},
+		&oidc_gorm.LockModel{},
+	)
+	return storage
+}
+
+func NewTestStorage(t *testing.T) oidc.Storage {
+	return oidc.NewTieredStorage(NewTestDB(), NewTestCache(t))
+}
+
 func TestTieredStorage_GetClient(t *testing.T) {
-	cache := NewMockStorage()
-	db := NewMockStorage()
-	storage := NewTieredStorage(cache, db)
+	cache := NewTestCache(t)
+	db := NewTestDB()
+	storage := oidc.NewTieredStorage(db, cache)
 	ctx := context.Background()
 
-	clientID := BinaryUUID{0x01} // Simplified UUID
-	clientMeta := ClientMetadata{
+	clientID := oidc.BinaryUUID{0x01} // Simplified UUID
+	clientMeta := oidc.ClientMetadata{
 		ID:             clientID,
 		RedirectURIs:   []string{"http://example.com"},
 		IsConfidential: true,
+		Secret:         "hashed_secret",
 	}
 
 	// 1. Setup: Create client in DB only
@@ -55,13 +104,13 @@ func TestTieredStorage_GetClient(t *testing.T) {
 }
 
 func TestTieredStorage_CreateClient(t *testing.T) {
-	cache := NewMockStorage()
-	db := NewMockStorage()
-	storage := NewTieredStorage(cache, db)
+	cache := NewTestCache(t)
+	db := NewTestDB()
+	storage := oidc.NewTieredStorage(db, cache)
 	ctx := context.Background()
 
-	clientID := BinaryUUID{0x02}
-	clientMeta := ClientMetadata{
+	clientID := oidc.BinaryUUID{0x02}
+	clientMeta := oidc.ClientMetadata{
 		ID: clientID,
 	}
 
@@ -81,13 +130,13 @@ func TestTieredStorage_CreateClient(t *testing.T) {
 }
 
 func TestTieredStorage_DeleteClient(t *testing.T) {
-	cache := NewMockStorage()
-	db := NewMockStorage()
-	storage := NewTieredStorage(cache, db)
+	cache := NewTestCache(t)
+	db := NewTestDB()
+	storage := oidc.NewTieredStorage(db, cache)
 	ctx := context.Background()
 
-	clientID := BinaryUUID{0x04}
-	clientMeta := ClientMetadata{ID: clientID}
+	clientID := oidc.BinaryUUID{0x04}
+	clientMeta := oidc.ClientMetadata{ID: clientID}
 	storage.CreateClient(ctx, clientMeta)
 
 	// Delete
@@ -104,19 +153,19 @@ func TestTieredStorage_DeleteClient(t *testing.T) {
 }
 
 func TestTieredStorage_UpdateClient(t *testing.T) {
-	cache := NewMockStorage()
-	db := NewMockStorage()
-	storage := NewTieredStorage(cache, db)
+	cache := NewTestCache(t)
+	db := NewTestDB()
+	storage := oidc.NewTieredStorage(db, cache)
 	ctx := context.Background()
 
-	clientID := BinaryUUID{0x03}
-	clientMeta := ClientMetadata{ID: clientID, Scope: "scope1"}
+	clientID := oidc.BinaryUUID{0x03}
+	clientMeta := oidc.ClientMetadata{ID: clientID, Scope: "scope1"}
 
 	_, err := storage.CreateClient(ctx, clientMeta)
 	assert.NoError(t, err)
 
 	// Update
-	newMeta := ClientMetadata{ID: clientID, Scope: "scope2"}
+	newMeta := oidc.ClientMetadata{ID: clientID, Scope: "scope2"}
 	_, err = storage.UpdateClient(ctx, clientID, newMeta)
 	assert.NoError(t, err)
 

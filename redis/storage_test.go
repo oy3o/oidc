@@ -11,10 +11,17 @@ import (
 	"github.com/google/uuid"
 	"github.com/lestrrat-go/jwx/v2/jwk"
 	"github.com/oy3o/oidc"
+	"github.com/oy3o/oidc/gorm"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+type clientFactory struct{}
+
+func (f *clientFactory) New() oidc.RegisteredClient {
+	return &gorm.ClientModel{}
+}
 
 // setupRedis 初始化 miniredis 和 Storage
 func setupRedis(t *testing.T) (*miniredis.Miniredis, *RedisStorage) {
@@ -26,7 +33,7 @@ func setupRedis(t *testing.T) (*miniredis.Miniredis, *RedisStorage) {
 		Addr: s.Addr(),
 	})
 
-	return s, NewRedisStorage(rdb)
+	return s, NewRedisStorage(rdb, &clientFactory{})
 }
 
 // ---------------------------------------------------------------------------

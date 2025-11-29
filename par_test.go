@@ -1,4 +1,4 @@
-package oidc
+package oidc_test
 
 import (
 	"context"
@@ -9,18 +9,19 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/oy3o/oidc"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 // setupPARTest 初始化 PAR 测试环境
-func setupPARTest(t *testing.T) (*MockStorage, RegisteredClient, Hasher) {
-	storage := NewMockStorage()
+func setupPARTest(t *testing.T) (oidc.Storage, oidc.RegisteredClient, oidc.Hasher) {
+	storage := NewTestStorage(t)
 	hasher := &mockHasher{} // 假设 mockHasher 已在 authorize_test.go 中定义，同一包下可见
 
 	// 创建一个机密客户端
-	clientID := BinaryUUID(uuid.New())
-	clientMeta := ClientMetadata{
+	clientID := oidc.BinaryUUID(uuid.New())
+	clientMeta := oidc.ClientMetadata{
 		ID:           clientID,
 		RedirectURIs: []string{"https://client.example.com/cb"},
 		GrantTypes:   []string{"authorization_code"},
@@ -42,7 +43,7 @@ func TestPushedAuthorization_Success(t *testing.T) {
 	storage, client, hasher := setupPARTest(t)
 	ctx := context.Background()
 
-	req := &PARRequest{
+	req := &oidc.PARRequest{
 		ClientID:            client.GetID().String(),
 		ClientSecret:        "test_secret",
 		RedirectURI:         "https://client.example.com/cb",
@@ -55,7 +56,7 @@ func TestPushedAuthorization_Success(t *testing.T) {
 	}
 
 	// 1. 推送请求
-	resp, err := PushedAuthorization(ctx, storage, hasher, req)
+	resp, err := oidc.PushedAuthorization(ctx, storage, hasher, req)
 	require.NoError(t, err)
 
 	// 2. 验证响应
@@ -66,22 +67,23 @@ func TestPushedAuthorization_Success(t *testing.T) {
 	// 3. 验证存储
 	// 通过直接查询 mock storage 验证
 	// 也可以通过 LoadPARSession 验证（见 TestLoadPARSession_Lifecycle）
-	assert.NotEmpty(t, storage.parSessions)
+	_, err = oidc.LoadPARSession(ctx, storage, resp.RequestURI)
+	require.NoError(t, err)
 }
 
 func TestPushedAuthorization_ClientAuthFailed(t *testing.T) {
 	storage, client, hasher := setupPARTest(t)
 	ctx := context.Background()
 
-	req := &PARRequest{
+	req := &oidc.PARRequest{
 		ClientID:     client.GetID().String(),
 		ClientSecret: "wrong_secret", // 错误密钥
 		RedirectURI:  "https://client.example.com/cb",
 		ResponseType: "code",
 	}
 
-	_, err := PushedAuthorization(ctx, storage, hasher, req)
-	assert.ErrorIs(t, err, ErrUnauthorizedClient)
+	_, err := oidc.PushedAuthorization(ctx, storage, hasher, req)
+	assert.ErrorIs(t, err, oidc.ErrUnauthorizedClient)
 }
 
 func TestPushedAuthorization_InvalidParams(t *testing.T) {
@@ -89,19 +91,19 @@ func TestPushedAuthorization_InvalidParams(t *testing.T) {
 	ctx := context.Background()
 
 	// 1. Redirect URI 不匹配
-	req1 := &PARRequest{
+	req1 := &oidc.PARRequest{
 		ClientID:     client.GetID().String(),
 		ClientSecret: "test_secret",
 		RedirectURI:  "https://attacker.com",
 		ResponseType: "code",
 	}
-	_, err := PushedAuthorization(ctx, storage, hasher, req1)
+	_, err := oidc.PushedAuthorization(ctx, storage, hasher, req1)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "mismatch redirect_uri")
 
 	// 2. 缺少必要参数 (Code Challenge)
 	// 假设 RequestAuthorize 强制检查 PKCE
-	req2 := &PARRequest{
+	req2 := &oidc.PARRequest{
 		ClientID:     client.GetID().String(),
 		ClientSecret: "test_secret",
 		RedirectURI:  "https://client.example.com/cb",
@@ -110,7 +112,7 @@ func TestPushedAuthorization_InvalidParams(t *testing.T) {
 		Nonce:        "n",
 		// CodeChallenge: "", // Missing
 	}
-	_, err = PushedAuthorization(ctx, storage, hasher, req2)
+	_, err = oidc.PushedAuthorization(ctx, storage, hasher, req2)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "code_challenge is required")
 }
@@ -122,7 +124,7 @@ func TestPushedAuthorization_PayloadTooLarge(t *testing.T) {
 	// 构造超大 Payload (> 100KB)
 	hugeState := strings.Repeat("a", 101*1024)
 
-	req := &PARRequest{
+	req := &oidc.PARRequest{
 		ClientID:            client.GetID().String(),
 		ClientSecret:        "test_secret",
 		RedirectURI:         "https://client.example.com/cb",
@@ -132,8 +134,8 @@ func TestPushedAuthorization_PayloadTooLarge(t *testing.T) {
 		CodeChallengeMethod: "S256",
 	}
 
-	_, err := PushedAuthorization(ctx, storage, hasher, req)
-	assert.ErrorIs(t, err, ErrInvalidRequest)
+	_, err := oidc.PushedAuthorization(ctx, storage, hasher, req)
+	assert.ErrorIs(t, err, oidc.ErrInvalidRequest)
 	assert.Contains(t, err.Error(), "payload too large")
 }
 
@@ -142,7 +144,7 @@ func TestLoadPARSession_Lifecycle(t *testing.T) {
 	ctx := context.Background()
 
 	// 1. 创建 PAR
-	parReq := &PARRequest{
+	parReq := &oidc.PARRequest{
 		ClientID:            client.GetID().String(),
 		ClientSecret:        "test_secret",
 		RedirectURI:         "https://client.example.com/cb",
@@ -153,19 +155,19 @@ func TestLoadPARSession_Lifecycle(t *testing.T) {
 		CodeChallenge:       "challenge",
 		CodeChallengeMethod: "S256",
 	}
-	resp, err := PushedAuthorization(ctx, storage, hasher, parReq)
+	resp, err := oidc.PushedAuthorization(ctx, storage, hasher, parReq)
 	require.NoError(t, err)
 	requestURI := resp.RequestURI
 
 	// 2. 第一次加载 (Consume) - 应该成功
-	authReq, err := LoadPARSession(ctx, storage, requestURI)
+	authReq, err := oidc.LoadPARSession(ctx, storage, requestURI)
 	require.NoError(t, err)
 	assert.Equal(t, client.GetID().String(), authReq.ClientID)
 	assert.Equal(t, "state-123", authReq.State)
 	assert.Equal(t, "nonce-123", authReq.Nonce)
 
 	// 3. 第二次加载 (Replay) - 应该失败 (One-time use)
-	_, err = LoadPARSession(ctx, storage, requestURI)
+	_, err = oidc.LoadPARSession(ctx, storage, requestURI)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "not found or expired")
 }
@@ -175,39 +177,23 @@ func TestLoadPARSession_Invalid(t *testing.T) {
 	ctx := context.Background()
 
 	// 1. 格式错误
-	_, err := LoadPARSession(ctx, storage, "not-a-valid-urn")
-	assert.ErrorIs(t, err, ErrInvalidRequest)
+	_, err := oidc.LoadPARSession(ctx, storage, "not-a-valid-urn")
+	assert.ErrorIs(t, err, oidc.ErrInvalidRequest)
 	assert.Contains(t, err.Error(), "invalid request_uri format")
 
 	// 2. 不存在
-	_, err = LoadPARSession(ctx, storage, "urn:ietf:params:oauth:request_uri:non-existent")
+	_, err = oidc.LoadPARSession(ctx, storage, "urn:ietf:params:oauth:request_uri:non-existent")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "not found")
 }
 
-func TestLoadPARSession_Expired(t *testing.T) {
-	storage := NewMockStorage()
-	ctx := context.Background()
-
-	requestURI := "urn:ietf:params:oauth:request_uri:expired"
-	req := &AuthorizeRequest{ClientID: "client-1"}
-
-	// 存入时使用负的 Duration，确保存入即过期
-	err := storage.SavePARSession(ctx, requestURI, req, -1*time.Minute)
-	require.NoError(t, err)
-
-	_, err = LoadPARSession(ctx, storage, requestURI)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "expired")
-}
-
 func TestPAR_Concurrency_OneTimeUse(t *testing.T) {
-	storage := NewMockStorage()
+	storage := NewTestStorage(t)
 	ctx := context.Background()
 
 	// 1. 创建一个 PAR Session
 	requestURI := "urn:ietf:params:oauth:request_uri:concurrent-test"
-	req := &AuthorizeRequest{ClientID: "client-1", State: "state-1"}
+	req := &oidc.AuthorizeRequest{ClientID: "client-1", State: "state-1"}
 	err := storage.SavePARSession(ctx, requestURI, req, time.Minute)
 	require.NoError(t, err)
 
@@ -221,7 +207,7 @@ func TestPAR_Concurrency_OneTimeUse(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			// 调用原子操作 LoadPARSession (内部调用 GetAndDelete)
-			if _, err := LoadPARSession(ctx, storage, requestURI); err == nil {
+			if _, err := oidc.LoadPARSession(ctx, storage, requestURI); err == nil {
 				successCount.Add(1)
 			}
 		}()
@@ -231,4 +217,19 @@ func TestPAR_Concurrency_OneTimeUse(t *testing.T) {
 
 	// 3. 验证：只能有一次成功
 	assert.Equal(t, int32(1), successCount.Load(), "PAR request_uri MUST be usable only once")
+}
+
+func TestLoadPARSession_Expired(t *testing.T) {
+	storage := NewTestStorage(t)
+	ctx := context.Background()
+
+	requestURI := "urn:ietf:params:oauth:request_uri:expired"
+	req := &oidc.AuthorizeRequest{ClientID: "client-1"}
+
+	err := storage.SavePARSession(ctx, requestURI, req, 10*time.Millisecond)
+	require.NoError(t, err)
+	time.Sleep(100 * time.Millisecond)
+	_, err = oidc.LoadPARSession(ctx, storage, requestURI)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "expired")
 }

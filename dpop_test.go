@@ -1,4 +1,4 @@
-package oidc
+package oidc_test
 
 import (
 	"context"
@@ -12,6 +12,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	"github.com/oy3o/oidc"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -69,7 +70,7 @@ func makeDPoPProof(
 
 func TestVerifyDPoPProof_Valid(t *testing.T) {
 	ctx := context.Background()
-	storage := NewMockStorage()
+	storage := NewTestStorage(t)
 	key := generateECKey(t)
 
 	htm := "POST"
@@ -82,7 +83,7 @@ func TestVerifyDPoPProof_Valid(t *testing.T) {
 	req.Header.Set("DPoP", proof)
 	w := httptest.NewRecorder()
 
-	jkt, err := VerifyDPoPProof(ctx, req, w, storage, htm, htu)
+	jkt, err := oidc.VerifyDPoPProof(ctx, req, w, storage, htm, htu)
 	require.NoError(t, err)
 	assert.NotEmpty(t, jkt)
 
@@ -92,13 +93,13 @@ func TestVerifyDPoPProof_Valid(t *testing.T) {
 		"x": base64.RawURLEncoding.EncodeToString(key.X.Bytes()),
 		"y": base64.RawURLEncoding.EncodeToString(key.Y.Bytes()),
 	}
-	expectedJKT, _ := ComputeJKT(jwkMap)
+	expectedJKT, _ := oidc.ComputeJKT(jwkMap)
 	assert.Equal(t, expectedJKT, jkt)
 }
 
 func TestVerifyDPoPProof_Replay(t *testing.T) {
 	ctx := context.Background()
-	storage := NewMockStorage()
+	storage := NewTestStorage(t)
 	key := generateECKey(t)
 	htm, htu := "POST", "https://server.example.com/token"
 	jti := "replay-jti"
@@ -108,18 +109,18 @@ func TestVerifyDPoPProof_Replay(t *testing.T) {
 	req.Header.Set("DPoP", proof)
 
 	// 第一次：成功
-	_, err := VerifyDPoPProof(ctx, req, nil, storage, htm, htu)
+	_, err := oidc.VerifyDPoPProof(ctx, req, nil, storage, htm, htu)
 	require.NoError(t, err)
 
 	// 第二次：失败 (Replay)
-	_, err = VerifyDPoPProof(ctx, req, nil, storage, htm, htu)
+	_, err = oidc.VerifyDPoPProof(ctx, req, nil, storage, htm, htu)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "jti has been used")
 }
 
 func TestVerifyDPoPProof_TimeSkew(t *testing.T) {
 	ctx := context.Background()
-	storage := NewMockStorage()
+	storage := NewTestStorage(t)
 	key := generateECKey(t)
 	htm, htu := "POST", "https://server.example.com/token"
 
@@ -156,7 +157,7 @@ func TestVerifyDPoPProof_TimeSkew(t *testing.T) {
 			req := httptest.NewRequest(htm, htu, nil)
 			req.Header.Set("DPoP", proof)
 
-			_, err := VerifyDPoPProof(ctx, req, nil, storage, htm, htu)
+			_, err := oidc.VerifyDPoPProof(ctx, req, nil, storage, htm, htu)
 			if tt.wantError != "" {
 				assert.Error(t, err)
 				assert.Contains(t, err.Error(), tt.wantError)
@@ -169,7 +170,7 @@ func TestVerifyDPoPProof_TimeSkew(t *testing.T) {
 
 func TestVerifyDPoPProof_MethodMismatch(t *testing.T) {
 	ctx := context.Background()
-	storage := NewMockStorage()
+	storage := NewTestStorage(t)
 	key := generateECKey(t)
 	htu := "https://server.example.com/token"
 
@@ -178,14 +179,14 @@ func TestVerifyDPoPProof_MethodMismatch(t *testing.T) {
 	req := httptest.NewRequest("POST", htu, nil)
 	req.Header.Set("DPoP", proof)
 
-	_, err := VerifyDPoPProof(ctx, req, nil, storage, "POST", htu)
+	_, err := oidc.VerifyDPoPProof(ctx, req, nil, storage, "POST", htu)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "htm mismatch")
 }
 
 func TestVerifyDPoPProof_URIMismatch(t *testing.T) {
 	ctx := context.Background()
-	storage := NewMockStorage()
+	storage := NewTestStorage(t)
 	key := generateECKey(t)
 	htm := "POST"
 
@@ -194,14 +195,14 @@ func TestVerifyDPoPProof_URIMismatch(t *testing.T) {
 	req := httptest.NewRequest(htm, "https://example.com/other", nil)
 	req.Header.Set("DPoP", proof)
 
-	_, err := VerifyDPoPProof(ctx, req, nil, storage, htm, "https://example.com/other")
+	_, err := oidc.VerifyDPoPProof(ctx, req, nil, storage, htm, "https://example.com/other")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "htu mismatch")
 }
 
 func TestVerifyDPoPProof_InvalidHeader(t *testing.T) {
 	ctx := context.Background()
-	storage := NewMockStorage()
+	storage := NewTestStorage(t)
 	key := generateECKey(t)
 	htm, htu := "POST", "https://example.com/token"
 
@@ -239,7 +240,7 @@ func TestVerifyDPoPProof_InvalidHeader(t *testing.T) {
 			req := httptest.NewRequest(htm, htu, nil)
 			req.Header.Set("DPoP", proof)
 
-			_, err := VerifyDPoPProof(ctx, req, nil, storage, htm, htu)
+			_, err := oidc.VerifyDPoPProof(ctx, req, nil, storage, htm, htu)
 			assert.Error(t, err)
 			assert.Contains(t, err.Error(), tt.wantError)
 		})
@@ -261,7 +262,7 @@ func TestComputeJKT(t *testing.T) {
 	// Value: NzbLsXh8uDCcd-6MNwXF4W_7noWXFZAfHkxZsRGC9Xs
 	expected := "NzbLsXh8uDCcd-6MNwXF4W_7noWXFZAfHkxZsRGC9Xs"
 
-	jkt, err := ComputeJKT(jwkRSA)
+	jkt, err := oidc.ComputeJKT(jwkRSA)
 	require.NoError(t, err)
 	assert.Equal(t, expected, jkt)
 }
@@ -278,7 +279,7 @@ func TestBuildDPoPBoundAccessTokenURI(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		got, err := BuildDPoPBoundAccessTokenURI(tt.input)
+		got, err := oidc.BuildDPoPBoundAccessTokenURI(tt.input)
 		require.NoError(t, err)
 		assert.Equal(t, tt.expected, got)
 	}

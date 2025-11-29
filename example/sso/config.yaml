@@ -1,0 +1,48 @@
+app:
+  name: "sso"
+  env: "dev" # dev, test, prod
+
+server:
+  addr: ":8080"
+  tls:
+    enabled: false
+    # cert_file: "./certs/sso.pem"
+    # key_file: "./certs/sso.key"
+
+database:
+  # 本地开发默认 DSN
+  # 生产环境必须通过环境变量 SSO_DATABASE_DSN 设置
+  dsn: "postgres://postgres:mysecretpassword@localhost:5432/sso_db?sslmode=disable"
+
+redis:
+  addr: "localhost:6379"
+  password: "" # 生产环境通过 SSO_REDIS_PASSWORD 设置
+  db: 0
+
+oidc:
+  issuer: "http://localhost:8080"
+  access_token_ttl: "1h"
+  refresh_token_ttl: "720h" # 30 days
+  id_token_ttl: "1h"
+  # 签名私钥路径 (PEM 格式)
+  signing_key_file: "./certs/signing-key.pem"
+
+pow:
+  difficulty: 4       # Hashcash 前导零位数 (4 hex digits = 16 bits zero)
+  lock_duration: "5m" # 暴力破解封锁时长
+  max_failures: 3     # 触发 PoW 的连续失败次数
+
+o11y:
+  enabled: true
+  service: "sso"
+  version: "v0.1.0"
+  environment: "dev"
+  log:
+    level: "debug"
+    console: true
+  trace:
+    enabled: false # 本地开发暂不开启 Trace 导出
+  metric:
+    enabled: true
+    exporter: "prometheus"
+    prometheus_addr: ":9090"

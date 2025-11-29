@@ -135,9 +135,12 @@ func ExchangeCode(ctx context.Context, storage Storage, hasher Hasher, issuer *I
 	}
 
 	// 5. 准备 Issuer 请求
-	profile, err := storage.GetUserInfo(ctx, session.UserID, strings.Fields(session.Scope))
-	if err != nil {
-		return nil, fmt.Errorf("failed to get user info: %w", err)
+	profile := &UserInfo{}
+	if strings.Contains(session.Scope, "openid") {
+		profile, err = storage.GetUserInfo(ctx, session.UserID, strings.Fields(session.Scope))
+		if err != nil {
+			return nil, fmt.Errorf("failed to get user info: %w", err)
+		}
 	}
 
 	issueReq := &IssuerRequest{

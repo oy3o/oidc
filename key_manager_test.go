@@ -1,4 +1,4 @@
-package oidc
+package oidc_test
 
 import (
 	"context"
@@ -9,32 +9,31 @@ import (
 	"testing"
 	"time"
 
+	"github.com/oy3o/oidc"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 // setupKeyManagerTest 初始化 KeyManager 测试环境
-func setupKeyManagerTest(t *testing.T) *KeyManager {
-	storage := NewMockStorage()
-	km := NewKeyManager(storage)
-	// 缩短缓存时间以便测试缓存过期
-	km.cacheTTL = 100 * time.Millisecond
-	return km
+func setupKeyManagerTest(t *testing.T) (*oidc.KeyManager, oidc.Storage) {
+	storage := NewTestStorage(t)
+	km := oidc.NewKeyManager(storage, 100*time.Millisecond)
+	return km, storage
 }
 
 func TestKeyManager_Generate_AllTypes(t *testing.T) {
-	km := setupKeyManagerTest(t)
+	km, _ := setupKeyManagerTest(t)
 	ctx := context.Background()
 
 	tests := []struct {
 		name    string
-		kty     KeyType
+		kty     oidc.KeyType
 		wantErr bool
 	}{
-		{"RSA", KEY_RSA, false},
-		{"ECDSA", KEY_ECDSA, false},
-		{"Ed25519", KEY_Ed25519, false},
-		{"Unknown", KeyType("UNKNOWN"), true},
+		{"RSA", oidc.KEY_RSA, false},
+		{"ECDSA", oidc.KEY_ECDSA, false},
+		{"Ed25519", oidc.KEY_Ed25519, false},
+		{"Unknown", oidc.KeyType("UNKNOWN"), true},
 	}
 
 	for _, tt := range tests {
@@ -54,13 +53,13 @@ func TestKeyManager_Generate_AllTypes(t *testing.T) {
 
 			// 验证具体的 Key 类型
 			switch tt.kty {
-			case KEY_RSA:
+			case oidc.KEY_RSA:
 				_, ok := key.(*rsa.PrivateKey)
 				assert.True(t, ok, "should be RSA key")
-			case KEY_ECDSA:
+			case oidc.KEY_ECDSA:
 				_, ok := key.(*ecdsa.PrivateKey)
 				assert.True(t, ok, "should be ECDSA key")
-			case KEY_Ed25519:
+			case oidc.KEY_Ed25519:
 				_, ok := key.(ed25519.PrivateKey)
 				assert.True(t, ok, "should be Ed25519 key")
 			}
@@ -69,11 +68,11 @@ func TestKeyManager_Generate_AllTypes(t *testing.T) {
 }
 
 func TestKeyManager_Add_Manual(t *testing.T) {
-	km := setupKeyManagerTest(t)
+	km, _ := setupKeyManagerTest(t)
 	ctx := context.Background()
 
 	// 1. 手动生成 RSA Key
-	rawKey, err := NewKey(KEY_RSA)
+	rawKey, err := oidc.NewKey(oidc.KEY_RSA)
 	require.NoError(t, err)
 
 	// 2. 添加到 Manager
@@ -93,15 +92,15 @@ func TestKeyManager_Add_Manual(t *testing.T) {
 }
 
 func TestKeyManager_SigningKeySelection(t *testing.T) {
-	km := setupKeyManagerTest(t)
+	km, _ := setupKeyManagerTest(t)
 	ctx := context.Background()
 
 	// 1. 初始状态：无签名 Key
 	_, err := km.GetSigningKeyID(ctx)
-	assert.ErrorIs(t, err, ErrKeyNotFound)
+	assert.ErrorIs(t, err, oidc.ErrKeyNotFound)
 
 	// 2. 生成 Key A (设为签名)
-	kidA, err := km.Generate(ctx, KEY_RSA, true)
+	kidA, err := km.Generate(ctx, oidc.KEY_RSA, true)
 	require.NoError(t, err)
 
 	curr, err := km.GetSigningKeyID(ctx)
@@ -109,7 +108,7 @@ func TestKeyManager_SigningKeySelection(t *testing.T) {
 	assert.Equal(t, kidA, curr)
 
 	// 3. 生成 Key B (不设为签名)
-	kidB, err := km.Generate(ctx, KEY_RSA, false)
+	kidB, err := km.Generate(ctx, oidc.KEY_RSA, false)
 	require.NoError(t, err)
 
 	curr, err = km.GetSigningKeyID(ctx)
@@ -124,15 +123,15 @@ func TestKeyManager_SigningKeySelection(t *testing.T) {
 
 	// 5. 尝试切换到不存在的 Key
 	err = km.SetSigningKeyID(ctx, "non-existent")
-	assert.ErrorIs(t, err, ErrKeyNotFound)
+	assert.ErrorIs(t, err, oidc.ErrKeyNotFound)
 }
 
 func TestKeyManager_SigningKey_Cache(t *testing.T) {
-	km := setupKeyManagerTest(t)
+	km, storage := setupKeyManagerTest(t)
 	ctx := context.Background()
 
 	// 1. 生成 Key A
-	kidA, _ := km.Generate(ctx, KEY_RSA, true)
+	kidA, _ := km.Generate(ctx, oidc.KEY_RSA, true)
 
 	// 2. 第一次获取 (Cache Miss -> DB)
 	curr, _ := km.GetSigningKeyID(ctx)
@@ -141,13 +140,13 @@ func TestKeyManager_SigningKey_Cache(t *testing.T) {
 	// 3. 直接修改 DB (模拟分布式环境下其他实例修改了配置)
 	kidB := "manual-key-b"
 	// 手动往 storage 塞一个 Key B
-	rawKeyB, _ := NewKey(KEY_RSA)
-	PublicKeyToJWK(rawKeyB.Public(), kidB, "RS256") // 简化，这里只为了让 SetSigningKeyID 通过检查
+	rawKeyB, _ := oidc.NewKey(oidc.KEY_RSA)
+	oidc.PublicKeyToJWK(rawKeyB.Public(), kidB, "RS256") // 简化，这里只为了让 SetSigningKeyID 通过检查
 	// 由于 KeyManager.SetSigningKeyID 会检查 key 是否存在，我们需要 hack storage 或者用 km.Add
 	kidB, _ = km.Add(ctx, rawKeyB)
 
 	// 绕过 km 缓存，直接操作 storage 修改 signing key ID
-	km.storage.SaveSigningKeyID(ctx, kidB)
+	storage.SaveSigningKeyID(ctx, kidB)
 
 	// 4. 立即获取 (Cache Hit -> Still A)
 	curr, _ = km.GetSigningKeyID(ctx)
@@ -162,12 +161,12 @@ func TestKeyManager_SigningKey_Cache(t *testing.T) {
 }
 
 func TestKeyManager_ExportJWKS(t *testing.T) {
-	km := setupKeyManagerTest(t)
+	km, _ := setupKeyManagerTest(t)
 	ctx := context.Background()
 
 	// 1. 生成 RSA 和 EC Key
-	rsaKid, _ := km.Generate(ctx, KEY_RSA, true)
-	ecKid, _ := km.Generate(ctx, KEY_ECDSA, false)
+	rsaKid, _ := km.Generate(ctx, oidc.KEY_RSA, true)
+	ecKid, _ := km.Generate(ctx, oidc.KEY_ECDSA, false)
 
 	// 2. 导出 JWKS
 	jwks, err := km.ExportJWKS(ctx)
@@ -203,15 +202,15 @@ func TestKeyManager_ExportJWKS(t *testing.T) {
 }
 
 func TestKeyManager_RemoveKey(t *testing.T) {
-	km := setupKeyManagerTest(t)
+	km, _ := setupKeyManagerTest(t)
 	ctx := context.Background()
 
-	kidA, _ := km.Generate(ctx, KEY_RSA, true)
-	kidB, _ := km.Generate(ctx, KEY_RSA, false)
+	kidA, _ := km.Generate(ctx, oidc.KEY_RSA, true)
+	kidB, _ := km.Generate(ctx, oidc.KEY_RSA, false)
 
 	// 1. 尝试删除签名 Key (应失败)
 	err := km.RemoveKey(ctx, kidA)
-	assert.ErrorIs(t, err, ErrCannotRemoveSigningKey)
+	assert.ErrorIs(t, err, oidc.ErrCannotRemoveSigningKey)
 
 	// 2. 删除非签名 Key (应成功)
 	err = km.RemoveKey(ctx, kidB)
@@ -219,7 +218,7 @@ func TestKeyManager_RemoveKey(t *testing.T) {
 
 	// 3. 验证已删除
 	_, err = km.GetKeyInternal(ctx, kidB)
-	assert.ErrorIs(t, err, ErrKeyNotFound)
+	assert.ErrorIs(t, err, oidc.ErrKeyNotFound)
 
 	// 4. 验证从 List 中消失
 	ids, _ := km.ListKeys(ctx)
@@ -228,10 +227,10 @@ func TestKeyManager_RemoveKey(t *testing.T) {
 }
 
 func TestKeyManager_GetKey_Default(t *testing.T) {
-	km := setupKeyManagerTest(t)
+	km, _ := setupKeyManagerTest(t)
 	ctx := context.Background()
 
-	kid, _ := km.Generate(ctx, KEY_RSA, true)
+	kid, _ := km.Generate(ctx, oidc.KEY_RSA, true)
 
 	// 1. 指定 KID
 	key1, err := km.GetKey(ctx, kid)
@@ -247,21 +246,21 @@ func TestKeyManager_GetKey_Default(t *testing.T) {
 func TestValidateKeySecurity(t *testing.T) {
 	// 1. Valid RSA 2048
 	// We'll use NewKey helper from key.go
-	rsa2048Key, _ := NewKey(KEY_RSA)
-	assert.NoError(t, ValidateKeySecurity(rsa2048Key))
+	rsa2048Key, _ := oidc.NewKey(oidc.KEY_RSA)
+	assert.NoError(t, oidc.ValidateKeySecurity(rsa2048Key))
 
 	// 2. Invalid RSA 1024
 	rsa1024, _ := rsa.GenerateKey(rand.Reader, 1024) // Just for test structure, assuming we have a reader wrapper
 	// Go's rsa.GenerateKey needs io.Reader.
 	// Let's manually construct a small key if needed, or trust rsa.GenerateKey
 	// To strictly test `ValidateKeySecurity` failure on small keys:
-	assert.ErrorIs(t, ValidateKeySecurity(rsa1024), ErrRSAKeyTooSmall)
+	assert.ErrorIs(t, oidc.ValidateKeySecurity(rsa1024), oidc.ErrRSAKeyTooSmall)
 
 	// 3. Valid ECDSA
-	ecKey, _ := NewKey(KEY_ECDSA)
-	assert.NoError(t, ValidateKeySecurity(ecKey))
+	ecKey, _ := oidc.NewKey(oidc.KEY_ECDSA)
+	assert.NoError(t, oidc.ValidateKeySecurity(ecKey))
 
 	// 4. Valid Ed25519
-	edKey, _ := NewKey(KEY_Ed25519)
-	assert.NoError(t, ValidateKeySecurity(edKey))
+	edKey, _ := oidc.NewKey(oidc.KEY_Ed25519)
+	assert.NoError(t, oidc.ValidateKeySecurity(edKey))
 }

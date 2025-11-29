@@ -9,7 +9,7 @@ import (
 )
 
 // DPoPContext 是用于在 context 中传递 DPoP 验证结果的 key
-type dpopContextKey struct{}
+type DpopContextKey struct{}
 
 // DPoPClaims 存储 DPoP 验证后的信息
 type DPoPClaims struct {
@@ -43,7 +43,7 @@ func DPoPMiddleware(cache ReplayCache, required bool) func(http.Handler) http.Ha
 			}
 
 			// 2. 构建完整的请求 URI (不含 query 和 fragment)
-			httpURI := buildRequestURI(r)
+			httpURI := BuildRequestURI(r)
 
 			// 3. 验证 DPoP proof
 			jkt, err := VerifyDPoPProof(ctx, r, w, cache, r.Method, httpURI)
@@ -56,7 +56,7 @@ func DPoPMiddleware(cache ReplayCache, required bool) func(http.Handler) http.Ha
 
 			// 4. 将 DPoP claims 存入 context
 			claims := &DPoPClaims{JKT: jkt}
-			ctx = context.WithValue(ctx, dpopContextKey{}, claims)
+			ctx = context.WithValue(ctx, DpopContextKey{}, claims)
 
 			// 5. 继续处理请求
 			next.ServeHTTP(w, r.WithContext(ctx))
@@ -67,13 +67,13 @@ func DPoPMiddleware(cache ReplayCache, required bool) func(http.Handler) http.Ha
 // DPoPFromContext 从 context 中提取 DPoP 验证结果
 // 返回 (claims, ok)，如果 ok == false 表示未使用 DPoP
 func DPoPFromContext(ctx context.Context) (*DPoPClaims, bool) {
-	claims, ok := ctx.Value(dpopContextKey{}).(*DPoPClaims)
+	claims, ok := ctx.Value(DpopContextKey{}).(*DPoPClaims)
 	return claims, ok
 }
 
-// buildRequestURI 构建 HTTP 请求的完整 URI (不含 query 和 fragment)
+// BuildRequestURI 构建 HTTP 请求的完整 URI (不含 query 和 fragment)
 // RFC 9449 Section 4.2: htu 必须是 scheme + host + path，不包含 query 和 fragment
-func buildRequestURI(r *http.Request) string {
+func BuildRequestURI(r *http.Request) string {
 	scheme := "https"
 	if r.TLS == nil {
 		scheme = "http"

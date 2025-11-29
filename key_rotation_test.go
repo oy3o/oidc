@@ -1,4 +1,4 @@
-package oidc
+package oidc_test
 
 import (
 	"context"
@@ -8,10 +8,11 @@ import (
 	"time"
 
 	"github.com/oy3o/o11y"
+	"github.com/oy3o/oidc"
 )
 
-// setupO11yForTest 为测试初始化 o11y（禁用模式，避免日志输出）
-func setupO11yForTest() func() {
+// SetupO11yForTest 为测试初始化 o11y（禁用模式，避免日志输出）
+func SetupO11yForTest() func() {
 	cfg := o11y.Config{
 		Enabled:              true,
 		Service:              "oidc-test",
@@ -39,27 +40,27 @@ func setupO11yForTest() func() {
 }
 
 func TestKeyRotationScheduler_RotateNow(t *testing.T) {
-	cleanup := setupO11yForTest()
+	cleanup := SetupO11yForTest()
 	defer cleanup()
 
 	ctx := context.Background()
 
 	// 创建 MockStorage 和 KeyManager
-	storage := NewMockStorage()
-	km := NewKeyManager(storage)
-	initialKID, err := km.Generate(ctx, KEY_RSA, true)
+	storage := NewTestStorage(t)
+	km := oidc.NewKeyManager(storage, 0)
+	initialKID, err := km.Generate(ctx, oidc.KEY_RSA, true)
 	if err != nil {
 		t.Fatalf("failed to generate initial key: %v", err)
 	}
 
 	// 创建调度器
-	config := KeyRotationConfig{
+	config := oidc.KeyRotationConfig{
 		RotationInterval: 1 * time.Minute,
 		GracePeriod:      10 * time.Second,
-		KeyType:          KEY_RSA,
+		KeyType:          oidc.KEY_RSA,
 		EnableAutoRotate: false, // 手动测试，不启用自动轮换
 	}
-	scheduler := NewKeyRotationScheduler(km, storage, config)
+	scheduler := oidc.NewKeyRotationScheduler(km, storage, config)
 
 	// 触发轮换
 	if err := scheduler.RotateNow(ctx); err != nil {
@@ -97,15 +98,15 @@ func TestKeyRotationScheduler_RotateNow(t *testing.T) {
 func TestKeyRotationScheduler_ConcurrentRotate(t *testing.T) {
 	ctx := context.Background()
 
-	storage := NewMockStorage()
-	km := NewKeyManager(storage)
-	config := KeyRotationConfig{
+	storage := NewTestStorage(t)
+	km := oidc.NewKeyManager(storage, 0)
+	config := oidc.KeyRotationConfig{
 		RotationInterval: 1 * time.Minute,
 		GracePeriod:      5 * time.Second,
-		KeyType:          KEY_RSA,
+		KeyType:          oidc.KEY_RSA,
 		EnableAutoRotate: false,
 	}
-	scheduler := NewKeyRotationScheduler(km, storage, config)
+	scheduler := oidc.NewKeyRotationScheduler(km, storage, config)
 
 	// 启动调度器（生成初始密钥）
 	if err := scheduler.Start(ctx); err != nil {
@@ -157,15 +158,15 @@ func TestKeyRotationScheduler_AutoRotation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	storage := NewMockStorage()
-	km := NewKeyManager(storage)
-	config := KeyRotationConfig{
+	storage := NewTestStorage(t)
+	km := oidc.NewKeyManager(storage, 0)
+	config := oidc.KeyRotationConfig{
 		RotationInterval: 2 * time.Second, // 快速轮换用于测试
 		GracePeriod:      1 * time.Second,
-		KeyType:          KEY_ECDSA,
+		KeyType:          oidc.KEY_ECDSA,
 		EnableAutoRotate: true,
 	}
-	scheduler := NewKeyRotationScheduler(km, storage, config)
+	scheduler := oidc.NewKeyRotationScheduler(km, storage, config)
 
 	// 启动自动轮换
 	if err := scheduler.Start(ctx); err != nil {
@@ -193,16 +194,16 @@ func TestKeyRotationScheduler_GracePeriodCleanup(t *testing.T) {
 
 	ctx := context.Background()
 
-	storage := NewMockStorage()
-	km := NewKeyManager(storage)
-	config := KeyRotationConfig{
+	storage := NewTestStorage(t)
+	km := oidc.NewKeyManager(storage, 0)
+	config := oidc.KeyRotationConfig{
 		RotationInterval: 1 * time.Minute,
 		GracePeriod:      2 * time.Second, // 短宽限期用于测试
 		CleanupInterval:  1 * time.Second, // 快节奏清理
-		KeyType:          KEY_RSA,
+		KeyType:          oidc.KEY_RSA,
 		EnableAutoRotate: false,
 	}
-	scheduler := NewKeyRotationScheduler(km, storage, config)
+	scheduler := oidc.NewKeyRotationScheduler(km, storage, config)
 
 	// 启动调度器
 	if err := scheduler.Start(ctx); err != nil {
@@ -228,7 +229,7 @@ func TestKeyRotationScheduler_GracePeriodCleanup(t *testing.T) {
 
 	// 验证旧密钥已被删除
 	_, err = km.GetKey(ctx, initialKID)
-	if err != ErrKeyNotFound {
+	if err != oidc.ErrKeyNotFound {
 		t.Errorf("old key should be deleted after grace period, got error: %v", err)
 	}
 
@@ -238,15 +239,15 @@ func TestKeyRotationScheduler_GracePeriodCleanup(t *testing.T) {
 func TestKeyRotationScheduler_ZeroGracePeriod(t *testing.T) {
 	ctx := context.Background()
 
-	storage := NewMockStorage()
-	km := NewKeyManager(storage)
-	config := KeyRotationConfig{
+	storage := NewTestStorage(t)
+	km := oidc.NewKeyManager(storage, 0)
+	config := oidc.KeyRotationConfig{
 		RotationInterval: 1 * time.Minute,
 		GracePeriod:      0, // 无宽限期，立即删除
-		KeyType:          KEY_Ed25519,
+		KeyType:          oidc.KEY_Ed25519,
 		EnableAutoRotate: false,
 	}
-	scheduler := NewKeyRotationScheduler(km, storage, config)
+	scheduler := oidc.NewKeyRotationScheduler(km, storage, config)
 
 	if err := scheduler.Start(ctx); err != nil {
 		t.Fatalf("failed to start scheduler: %v", err)
@@ -262,7 +263,7 @@ func TestKeyRotationScheduler_ZeroGracePeriod(t *testing.T) {
 
 	// 验证旧密钥立即被删除
 	_, err := km.GetKey(ctx, initialKID)
-	if err != ErrKeyNotFound {
+	if err != oidc.ErrKeyNotFound {
 		t.Errorf("old key should be immediately deleted with zero grace period, got error: %v", err)
 	}
 

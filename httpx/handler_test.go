@@ -2,7 +2,6 @@ package httpx_test
 
 import (
 	"context"
-	"github.com/bytedance/sonic"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -11,13 +10,62 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alicebob/miniredis/v2"
+	"github.com/bytedance/sonic"
+	"github.com/redis/go-redis/v9"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
+
 	"github.com/google/uuid"
 	"github.com/oy3o/o11y"
 	"github.com/oy3o/oidc"
-	oidchttpx "github.com/oy3o/oidc/httpx"
+	oidc_gorm "github.com/oy3o/oidc/gorm"
+	oidc_httpx "github.com/oy3o/oidc/httpx"
+	oidc_redis "github.com/oy3o/oidc/redis"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+type clientFactory struct{}
+
+func (f *clientFactory) New() oidc.RegisteredClient {
+	return &oidc_gorm.ClientModel{}
+}
+
+func NewTestCache(t *testing.T) oidc.Cache {
+	s := miniredis.RunT(t)
+
+	rdb := redis.NewClient(&redis.Options{
+		Addr: s.Addr(),
+	})
+	return oidc_redis.NewRedisStorage(rdb, &clientFactory{})
+}
+
+func NewTestDB() oidc.Persistence {
+	db, _ := gorm.Open(sqlite.Open("file::memory:"), &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Silent),
+	})
+
+	hasher := &mockHasher{}
+	storage := oidc_gorm.NewGormStorage(db, hasher, true)
+	db.AutoMigrate(
+		&oidc_gorm.ClientModel{},
+		&oidc_gorm.AuthCodeModel{},
+		&oidc_gorm.RefreshTokenModel{},
+		&oidc_gorm.BlacklistModel{},
+		&oidc_gorm.DeviceCodeModel{},
+		&oidc_gorm.UserModel{},
+		&oidc_gorm.PARModel{},
+		&oidc_gorm.KeyModel{},
+		&oidc_gorm.LockModel{},
+	)
+	return storage
+}
+
+func NewTestStorage(t *testing.T) oidc.Storage {
+	return oidc.NewTieredStorage(NewTestDB(), NewTestCache(t))
+}
 
 // TestMain 初始化测试环境
 func TestMain(m *testing.M) {
@@ -39,8 +87,8 @@ func TestMain(m *testing.M) {
 }
 
 // setupServer 创建一个完全配置的 OIDC Server 用于测试
-func setupServer(t *testing.T) (*oidc.Server, *mockStorage, oidc.RegisteredClient) {
-	storage := newMockStorage() // 使用本地定义的 mockStorage
+func setupServer(t *testing.T) (*oidc.Server, oidc.Storage, oidc.RegisteredClient) {
+	storage := NewTestStorage(t)
 	hasher := &mockHasher{}
 
 	// 1. 初始化 Secret Manager
@@ -101,7 +149,7 @@ func (m *mockHasher) Compare(ctx context.Context, hashedPassword []byte, passwor
 
 func TestDiscoveryHandler(t *testing.T) {
 	server, _, _ := setupServer(t)
-	handler := oidchttpx.DiscoveryHandler(server)
+	handler := oidc_httpx.DiscoveryHandler(server)
 
 	req := httptest.NewRequest("GET", "/.well-known/openid-configuration", nil)
 	w := httptest.NewRecorder()
@@ -120,7 +168,7 @@ func TestDiscoveryHandler(t *testing.T) {
 
 func TestJWKSHandler(t *testing.T) {
 	server, _, _ := setupServer(t)
-	handler := oidchttpx.JWKSHandler(server)
+	handler := oidc_httpx.JWKSHandler(server)
 
 	req := httptest.NewRequest("GET", "/jwks.json", nil)
 	w := httptest.NewRecorder()
@@ -148,7 +196,7 @@ func TestJWKSHandler(t *testing.T) {
 
 func TestTokenHandler_ErrorHandling(t *testing.T) {
 	server, _, _ := setupServer(t)
-	handler := oidchttpx.TokenHandler(server)
+	handler := oidc_httpx.TokenHandler(server)
 
 	v := url.Values{}
 	v.Set("grant_type", "unknown_grant")
@@ -168,7 +216,7 @@ func TestTokenHandler_ErrorHandling(t *testing.T) {
 
 func TestTokenHandler_ClientCredentials(t *testing.T) {
 	server, _, client := setupServer(t)
-	handler := oidchttpx.TokenHandler(server)
+	handler := oidc_httpx.TokenHandler(server)
 
 	v := url.Values{}
 	v.Set("grant_type", "client_credentials")
@@ -195,10 +243,10 @@ func TestTokenHandler_ClientCredentials(t *testing.T) {
 
 func TestAuthenticationMiddleware_Compliance(t *testing.T) {
 	server, _, client := setupServer(t)
-	mw := oidchttpx.AuthenticationMiddleware(server)
+	mw := oidc_httpx.AuthenticationMiddleware(server)
 
 	protectedHandler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		claims, err := oidchttpx.GetClaims(r.Context())
+		claims, err := oidc_httpx.GetClaims(r.Context())
 		require.NoError(t, err)
 		assert.NotEmpty(t, claims.Subject)
 		w.WriteHeader(http.StatusOK)
@@ -258,32 +306,56 @@ func TestAuthenticationMiddleware_Compliance(t *testing.T) {
 // -----------------------------------------------------------------------------
 // UserInfo Handler Integration
 // -----------------------------------------------------------------------------
-
 func TestUserInfoHandler(t *testing.T) {
-	server, _, client := setupServer(t)
-	mw := oidchttpx.AuthenticationMiddleware(server)
-	handler := mw(oidchttpx.UserInfoHandler(server))
+	server, storage, client := setupServer(t)
+	mw := oidc_httpx.AuthenticationMiddleware(server)
+	handler := mw(oidc_httpx.UserInfoHandler(server))
+	ctx := context.Background()
 
-	// 生成 Access Token
-	tokenResp, err := server.Exchange(context.Background(), &oidc.TokenRequest{
-		GrantType:    "client_credentials",
-		ClientID:     client.GetID().String(),
-		ClientSecret: "test_secret",
-		Scope:        "openid profile",
+	// 1. 准备用户数据
+	// UserInfo 端点需要数据库里真的有这个用户
+	userID := oidc.BinaryUUID(uuid.New())
+	userName := "Test User"
+	userEmail := "test@example.com"
+
+	err := storage.CreateUserInfo(ctx, &oidc.UserInfo{
+		Subject: userID.String(),
+		Name:    &userName,
+		Email:   &userEmail,
 	})
 	require.NoError(t, err)
 
+	// 2. 手动签发一个属于该用户的 Token (模拟 Authorization Code Flow 的结果)
+	// 我们不使用 client_credentials，而是直接调用 Issuer 生成用户 Token
+	issueReq := &oidc.IssuerRequest{
+		ClientID: client.GetID(),
+		UserID:   userID, // 关键：sub 必须是 UserID
+		Scopes:   "openid profile email",
+		Audience: []string{client.GetID().String()},
+	}
+
+	// IssueOIDCTokens 会生成 ID Token, Access Token (sub=userID) 和 Refresh Token
+	tokenResp, err := server.Issuer().IssueOIDCTokens(ctx, issueReq)
+	require.NoError(t, err)
+
+	// 3. 发起请求
 	req := httptest.NewRequest("GET", "/userinfo", nil)
 	req.Header.Set("Authorization", "Bearer "+tokenResp.AccessToken)
 	w := httptest.NewRecorder()
 
 	handler.ServeHTTP(w, req)
 
+	// 4. 验证结果
 	assert.Equal(t, http.StatusOK, w.Code)
+
 	var info oidc.UserInfo
 	sonic.Unmarshal(w.Body.Bytes(), &info)
+
+	assert.Equal(t, userID.String(), info.Subject)
 	assert.NotNil(t, info.Name)
 	assert.Equal(t, "Test User", *info.Name)
+	assert.NotNil(t, info.Email)
+	assert.Equal(t, "test@example.com", *info.Email)
 }
 
 // -----------------------------------------------------------------------------
@@ -292,7 +364,7 @@ func TestUserInfoHandler(t *testing.T) {
 
 func TestIntrospectionHandler(t *testing.T) {
 	server, _, client := setupServer(t)
-	handler := oidchttpx.IntrospectionHandler(server)
+	handler := oidc_httpx.IntrospectionHandler(server)
 
 	// 1. 获取一个有效 Token
 	tokenResp, err := server.Exchange(context.Background(), &oidc.TokenRequest{

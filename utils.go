@@ -7,6 +7,7 @@ import (
 	"io"
 
 	"github.com/bytedance/sonic"
+	"github.com/google/uuid"
 )
 
 // RandomString 生成指定长度的随机字符串 (URL Safe Base64)
@@ -24,4 +25,13 @@ func DecodeJSON(r io.Reader, v any) error {
 	d := sonic.ConfigDefault.NewDecoder(r)
 	d.UseNumber()
 	return d.Decode(v)
+}
+
+// ParseUUID 辅助函数
+func ParseUUID(s string) (BinaryUUID, error) {
+	id, err := uuid.Parse(s)
+	if err != nil {
+		return BinaryUUID{}, err
+	}
+	return BinaryUUID(id), nil
 }

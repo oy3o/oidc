@@ -1,4 +1,4 @@
-package oidc
+package oidc_test
 
 import (
 	"context"
@@ -7,22 +7,31 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	"github.com/oy3o/oidc"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestUserInfo_ScopeFiltering(t *testing.T) {
-	server, _, _ := setupSessionTest(t) // 复用 session_test.go 的 setup
+	server, storage, _ := setupSessionTest(t) // 复用 session_test.go 的 setup
 	ctx := context.Background()
-	userID := BinaryUUID(uuid.New())
+	userID := oidc.BinaryUUID(uuid.New())
+
+	name := "Test User"
+	email := "test@example.com"
+	storage.CreateUserInfo(ctx, &oidc.UserInfo{
+		Subject: userID.String(),
+		Name:    &name,
+		Email:   &email,
+	})
 
 	// 辅助函数：生成 Token 并调用 UserInfo
-	getUserInfoWithScope := func(scope string) *UserInfo {
+	getUserInfoWithScope := func(scope string) *oidc.UserInfo {
 		// 伪造一个带有特定 scope 的 Access Token
 		// 注意：这里直接生成 Access Token，跳过完整的 Issue 流程
-		claims := &AccessTokenClaims{
+		claims := &oidc.AccessTokenClaims{
 			RegisteredClaims: jwt.RegisteredClaims{
-				Issuer:    server.cfg.Issuer,
+				Issuer:    server.Issuer().Issuer(),
 				Subject:   userID.String(),
 				Audience:  []string{"client-id"},
 				ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),

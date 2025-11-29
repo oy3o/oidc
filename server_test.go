@@ -1,4 +1,4 @@
-package oidc
+package oidc_test
 
 import (
 	"context"
@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/oy3o/oidc"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -16,17 +17,17 @@ import (
 // -----------------------------------------------------------------------------
 
 func TestNewServer_Validation(t *testing.T) {
-	storage := NewMockStorage()
+	storage := NewTestStorage(t)
 	hasher := &mockHasher{}
 
 	tests := []struct {
 		name    string
-		cfg     ServerConfig
+		cfg     oidc.ServerConfig
 		wantErr string
 	}{
 		{
 			name: "Missing Issuer",
-			cfg: ServerConfig{
+			cfg: oidc.ServerConfig{
 				Issuer:  "",
 				Storage: storage,
 				Hasher:  hasher,
@@ -35,7 +36,7 @@ func TestNewServer_Validation(t *testing.T) {
 		},
 		{
 			name: "Missing Storage",
-			cfg: ServerConfig{
+			cfg: oidc.ServerConfig{
 				Issuer:  "https://test.com",
 				Storage: nil,
 				Hasher:  hasher,
@@ -44,7 +45,7 @@ func TestNewServer_Validation(t *testing.T) {
 		},
 		{
 			name: "Missing Hasher",
-			cfg: ServerConfig{
+			cfg: oidc.ServerConfig{
 				Issuer:  "https://test.com",
 				Storage: storage,
 				Hasher:  nil,
@@ -53,7 +54,7 @@ func TestNewServer_Validation(t *testing.T) {
 		},
 		{
 			name: "Valid Config",
-			cfg: ServerConfig{
+			cfg: oidc.ServerConfig{
 				Issuer:  "https://test.com",
 				Storage: storage,
 				Hasher:  hasher,
@@ -64,7 +65,7 @@ func TestNewServer_Validation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := NewServer(tt.cfg)
+			_, err := oidc.NewServer(tt.cfg)
 			if tt.wantErr != "" {
 				assert.Error(t, err)
 				assert.Contains(t, err.Error(), tt.wantErr)
@@ -76,16 +77,16 @@ func TestNewServer_Validation(t *testing.T) {
 }
 
 func TestServer_Defaults(t *testing.T) {
-	storage := NewMockStorage()
+	storage := NewTestStorage(t)
 	hasher := &mockHasher{}
 
 	// 初始化 SecretManager 并添加 HMAC 密钥
-	sm := NewSecretManager()
+	sm := oidc.NewSecretManager()
 	// 32字节的 hex string
 	err := sm.AddKey("test-hmac-key", "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff")
 	require.NoError(t, err)
 
-	cfg := ServerConfig{
+	cfg := oidc.ServerConfig{
 		Issuer:        "https://test.com",
 		Storage:       storage,
 		Hasher:        hasher,
@@ -93,15 +94,15 @@ func TestServer_Defaults(t *testing.T) {
 		// Leave TTLs as 0
 	}
 
-	server, err := NewServer(cfg)
+	server, err := oidc.NewServer(cfg)
 	require.NoError(t, err)
 
 	// 验证默认 TTL 是否被正确设置
-	assert.Equal(t, 5*time.Minute, server.cfg.CodeTTL)
-	assert.Equal(t, 1*time.Hour, server.cfg.AccessTokenTTL)
-	assert.Equal(t, 1*time.Hour, server.cfg.IDTokenTTL)
-	assert.Equal(t, 30*24*time.Hour, server.cfg.RefreshTokenTTL)
-	assert.NotEmpty(t, server.cfg.SupportedSigningAlgs)
+	assert.Equal(t, 5*time.Minute, server.Config().CodeTTL)
+	assert.Equal(t, 1*time.Hour, server.Config().AccessTokenTTL)
+	assert.Equal(t, 1*time.Hour, server.Config().IDTokenTTL)
+	assert.Equal(t, 30*24*time.Hour, server.Config().RefreshTokenTTL)
+	assert.NotEmpty(t, server.Config().SupportedSigningAlgs)
 }
 
 // -----------------------------------------------------------------------------
@@ -109,32 +110,32 @@ func TestServer_Defaults(t *testing.T) {
 // -----------------------------------------------------------------------------
 
 func TestServer_ValidateKeys(t *testing.T) {
-	storage := NewMockStorage()
+	storage := NewTestStorage(t)
 	hasher := &mockHasher{}
 
 	// 初始化 SecretManager 并添加 HMAC 密钥
-	sm := NewSecretManager()
+	sm := oidc.NewSecretManager()
 	// 32字节的 hex string
 	err := sm.AddKey("test-hmac-key", "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff")
 	require.NoError(t, err)
 
-	cfg := ServerConfig{
+	cfg := oidc.ServerConfig{
 		Issuer:        "https://test.com",
 		Storage:       storage,
 		Hasher:        hasher,
 		SecretManager: sm,
 	}
 
-	server, err := NewServer(cfg)
+	server, err := oidc.NewServer(cfg)
 	require.NoError(t, err)
 
 	// 1. 初始状态：没有密钥
 	ctx := context.Background()
 	err = server.ValidateKeys(ctx)
-	assert.ErrorIs(t, err, ErrNoSigningKey)
+	assert.ErrorIs(t, err, oidc.ErrNoSigningKey)
 
 	// 2. 添加密钥
-	kid, err := server.KeyManager().Generate(ctx, KEY_RSA, true)
+	kid, err := server.KeyManager().Generate(ctx, oidc.KEY_RSA, true)
 	require.NoError(t, err)
 	assert.NotEmpty(t, kid)
 
@@ -148,24 +149,24 @@ func TestServer_ValidateKeys(t *testing.T) {
 // -----------------------------------------------------------------------------
 
 func TestServer_Discovery(t *testing.T) {
-	storage := NewMockStorage()
+	storage := NewTestStorage(t)
 	hasher := &mockHasher{}
 	issuer := "https://auth.example.com"
 
 	// 初始化 SecretManager 并添加 HMAC 密钥
-	sm := NewSecretManager()
+	sm := oidc.NewSecretManager()
 	// 32字节的 hex string
 	err := sm.AddKey("test-hmac-key", "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff")
 	require.NoError(t, err)
 
-	cfg := ServerConfig{
+	cfg := oidc.ServerConfig{
 		Issuer:        issuer,
 		Storage:       storage,
 		Hasher:        hasher,
 		SecretManager: sm,
 	}
 
-	server, err := NewServer(cfg)
+	server, err := oidc.NewServer(cfg)
 	require.NoError(t, err)
 
 	disco := server.Discovery()
@@ -187,36 +188,36 @@ func TestServer_Discovery(t *testing.T) {
 // -----------------------------------------------------------------------------
 
 func TestServer_VerifyAccessToken(t *testing.T) {
-	storage := NewMockStorage()
+	storage := NewTestStorage(t)
 	hasher := &mockHasher{}
 	issuerURL := "https://auth.example.com"
 
 	// 初始化 SecretManager 并添加 HMAC 密钥
-	sm := NewSecretManager()
+	sm := oidc.NewSecretManager()
 	// 32字节的 hex string
 	err := sm.AddKey("test-hmac-key", "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff")
 	require.NoError(t, err)
 
-	cfg := ServerConfig{
+	cfg := oidc.ServerConfig{
 		Issuer:        issuerURL,
 		Storage:       storage,
 		Hasher:        hasher,
 		SecretManager: sm,
 	}
 
-	server, err := NewServer(cfg)
+	server, err := oidc.NewServer(cfg)
 	require.NoError(t, err)
 
 	// 生成密钥
 	ctx := context.Background()
-	_, err = server.KeyManager().Generate(ctx, KEY_RSA, true)
+	_, err = server.KeyManager().Generate(ctx, oidc.KEY_RSA, true)
 	require.NoError(t, err)
 
 	// 准备一个 Token Request 来生成合法的 Access Token
-	clientID := BinaryUUID(uuid.New())
-	userID := BinaryUUID(uuid.New())
+	clientID := oidc.BinaryUUID(uuid.New())
+	userID := oidc.BinaryUUID(uuid.New())
 
-	req := &IssuerRequest{
+	req := &oidc.IssuerRequest{
 		ClientID: clientID,
 		UserID:   userID,
 		Scopes:   "openid profile",
@@ -224,7 +225,7 @@ func TestServer_VerifyAccessToken(t *testing.T) {
 	}
 
 	// 直接调用内部 issuer 生成 token
-	resp, err := server.issuer.IssueOAuthTokens(ctx, req)
+	resp, err := server.Issuer().IssueOAuthTokens(ctx, req)
 	require.NoError(t, err)
 	validToken := resp.AccessToken
 
@@ -248,20 +249,20 @@ func TestServer_VerifyAccessToken(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = server.VerifyAccessToken(ctx, validToken)
-	assert.ErrorIs(t, err, ErrTokenRevoked)
+	assert.ErrorIs(t, err, oidc.ErrTokenRevoked)
 }
 
 func TestServer_VerifyAccessToken_Expired(t *testing.T) {
-	storage := NewMockStorage()
+	storage := NewTestStorage(t)
 	hasher := &mockHasher{}
 
 	// 初始化 SecretManager 并添加 HMAC 密钥
-	sm := NewSecretManager()
+	sm := oidc.NewSecretManager()
 	// 32字节的 hex string
 	err := sm.AddKey("test-hmac-key", "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff")
 	require.NoError(t, err)
 
-	cfg := ServerConfig{
+	cfg := oidc.ServerConfig{
 		Issuer:        "https://auth.example.com",
 		Storage:       storage,
 		Hasher:        hasher,
@@ -270,20 +271,20 @@ func TestServer_VerifyAccessToken_Expired(t *testing.T) {
 		AccessTokenTTL: 1 * time.Millisecond,
 	}
 
-	server, err := NewServer(cfg)
+	server, err := oidc.NewServer(cfg)
 	require.NoError(t, err)
 
 	ctx := context.Background()
-	_, err = server.KeyManager().Generate(ctx, KEY_RSA, true)
+	_, err = server.KeyManager().Generate(ctx, oidc.KEY_RSA, true)
 	require.NoError(t, err)
 
-	req := &IssuerRequest{
-		ClientID: BinaryUUID(uuid.New()),
-		UserID:   BinaryUUID(uuid.New()),
+	req := &oidc.IssuerRequest{
+		ClientID: oidc.BinaryUUID(uuid.New()),
+		UserID:   oidc.BinaryUUID(uuid.New()),
 		Scopes:   "openid",
 	}
 
-	resp, err := server.issuer.IssueOAuthTokens(ctx, req)
+	resp, err := server.Issuer().IssueOAuthTokens(ctx, req)
 	require.NoError(t, err)
 
 	// 等待过期
@@ -298,47 +299,47 @@ func TestServer_VerifyAccessToken_Expired(t *testing.T) {
 // 5. Introspection Test
 // -----------------------------------------------------------------------------
 func TestServer_Introspect(t *testing.T) {
-	storage := NewMockStorage()
+	storage := NewTestStorage(t)
 	hasher := &mockHasher{}
 
 	// 初始化 SecretManager 并添加 HMAC 密钥
-	sm := NewSecretManager()
+	sm := oidc.NewSecretManager()
 	// 32字节的 hex string
 	err := sm.AddKey("test-hmac-key", "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff")
 	require.NoError(t, err)
 
-	cfg := ServerConfig{
+	cfg := oidc.ServerConfig{
 		Issuer:        "https://auth.example.com",
 		Storage:       storage,
 		Hasher:        hasher,
 		SecretManager: sm,
 	}
-	server, _ := NewServer(cfg)
+	server, _ := oidc.NewServer(cfg)
 	ctx := context.Background()
-	_, err = server.KeyManager().Generate(ctx, KEY_RSA, true)
+	_, err = server.KeyManager().Generate(ctx, oidc.KEY_RSA, true)
 	require.NoError(t, err)
 
 	// 0. 准备：创建一个机密客户端用于内省
 	// Introspection 必须由已认证的客户端调用
-	clientID := BinaryUUID(uuid.New())
+	clientID := oidc.BinaryUUID(uuid.New())
 	clientSecret := "test_secret"
-	clientMeta := ClientMetadata{
+	clientMeta := oidc.ClientMetadata{
 		ID:             clientID,
 		IsConfidential: true,
-		Secret:         String(clientSecret), // MockHasher 直接比对，存明文即可
+		Secret:         oidc.String(clientSecret), // MockHasher 直接比对，存明文即可
 		RedirectURIs:   []string{"https://client.com/cb"},
 	}
 	_, err = storage.CreateClient(ctx, clientMeta)
 	require.NoError(t, err)
 
 	// 1. 生成 Access Token (用于被内省)
-	req := &IssuerRequest{
+	req := &oidc.IssuerRequest{
 		ClientID: clientID,
-		UserID:   BinaryUUID(uuid.New()),
+		UserID:   oidc.BinaryUUID(uuid.New()),
 		Scopes:   "read:data",
 		Audience: []string{clientID.String()},
 	}
-	resp, _ := server.issuer.IssueOAuthTokens(ctx, req)
+	resp, _ := server.Issuer().IssueOAuthTokens(ctx, req)
 
 	// 2. Case: 成功内省 (有效 Token + 正确凭证)
 	info, err := server.Introspect(ctx, resp.AccessToken, clientID.String(), clientSecret)

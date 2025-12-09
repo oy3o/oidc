@@ -69,6 +69,11 @@ func VerifyDPoPProof(
 			return nil, fmt.Errorf("%w: invalid jwk format", ErrInvalidRequest)
 		}
 
+		// DPoP requires asymmetric keys (RFC 9449 Section 4.2)
+		if kty, ok := jwkMap["kty"].(string); ok && kty == "oct" {
+			return nil, fmt.Errorf("%w: symmetric keys (oct) are not allowed for DPoP", ErrInvalidRequest)
+		}
+
 		// 将 JWK 转换为公钥
 		pubKey, err := jwkToPublicKey(jwkMap)
 		if err != nil {

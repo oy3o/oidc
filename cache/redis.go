@@ -2,7 +2,6 @@ package cache
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
@@ -57,7 +56,7 @@ func (r *RedisStorage) AuthCodeSave(ctx context.Context, session *oidc.AuthCodeS
 	// 计算剩余有效期
 	ttl := time.Until(session.ExpiresAt)
 	if ttl <= 0 {
-		return errors.New("auth code already expired")
+		return ErrAuthCodeExpired
 	}
 
 	return r.client.Set(ctx, key, data, ttl).Err()
@@ -91,7 +90,7 @@ func (r *RedisStorage) AuthCodeConsume(ctx context.Context, code string) (*oidc.
 
 	valStr, ok := result.(string)
 	if !ok {
-		return nil, errors.New("invalid data type in redis")
+		return nil, ErrInvalidDataType
 	}
 
 	var session oidc.AuthCodeSession
@@ -114,7 +113,7 @@ func (r *RedisStorage) DeviceCodeSave(ctx context.Context, session *oidc.DeviceC
 	}
 	ttl := time.Until(session.ExpiresAt)
 	if ttl <= 0 {
-		return errors.New("device code expired")
+		return ErrDeviceCodeExpired
 	}
 
 	// 需要存两份索引：一份通过 DeviceCode 查，一份通过 UserCode 查
@@ -256,12 +255,12 @@ func (r *RedisStorage) PARSessionConsume(ctx context.Context, requestURI string)
 		return nil, fmt.Errorf("redis error: %w", err)
 	}
 	if err == redis.Nil || result == nil {
-		return nil, fmt.Errorf("PAR session not found or expired")
+		return nil, ErrPARSessionNotFound
 	}
 
 	valStr, ok := result.(string)
 	if !ok {
-		return nil, errors.New("invalid data type in redis")
+		return nil, ErrInvalidDataType
 	}
 	var session internalPARSession
 	if err := sonic.Unmarshal([]byte(valStr), &session); err != nil {
@@ -272,7 +271,7 @@ func (r *RedisStorage) PARSessionConsume(ctx context.Context, requestURI string)
 	// 即便 Redis 没有及时删除，我们也在这里拦截
 	if time.Now().After(session.ExpiresAt) {
 		// 记录已从 Redis 删除（Lua脚本已执行删除），但数据已过期
-		return nil, fmt.Errorf("PAR session expired")
+		return nil, ErrPARSessionExpired
 	}
 
 	return session.Request, nil
@@ -361,7 +360,7 @@ func (r *RedisStorage) RefreshTokenInGracePeriod(ctx context.Context, tokenID oi
 // JWKSave 存储 JWK
 func (r *RedisStorage) JWKSave(ctx context.Context, key jwk.Key) error {
 	if key.KeyID() == "" {
-		return errors.New("key must have a kid")
+		return oidc.ErrKIDEmpty
 	}
 
 	// 序列化为 JSON (包含私钥)

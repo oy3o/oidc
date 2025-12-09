@@ -228,6 +228,48 @@ var (
 
 	// ErrUnsupportedKeyType 不支持的密钥类型
 	ErrUnsupportedKeyType = errors.New("unsupported key type")
+
+	// ErrCircuitBreakerOpen 断路器打开
+	ErrCircuitBreakerOpen = errors.New("remote JWKS unavailable (circuit breaker open)")
+
+	// ErrKeyExpired 密钥已过期
+	ErrKeyExpired = errors.New("key expired")
+
+	// ErrNoActiveKey 未设置活跃密钥
+	ErrNoActiveKey = errors.New("no active key set")
+
+	// ErrKIDEmpty KID 不能为空
+	ErrKIDEmpty = errors.New("kid cannot be empty")
+
+	// ErrKeyTooShort 密钥长度不足
+	ErrKeyTooShort = errors.New("key must be at least 32 bytes")
+
+	// ErrCannotRemoveActiveKey 不能删除活跃密钥
+	ErrCannotRemoveActiveKey = errors.New("cannot remove active key")
+
+	// ErrUnsupportedECDSACurve 不支持的 ECDSA 曲线
+	ErrUnsupportedECDSACurve = errors.New("unsupported ECDSA curve")
+
+	// ErrUnsupportedPrivateKeyType 不支持的私钥类型
+	ErrUnsupportedPrivateKeyType = errors.New("unsupported private key type")
+
+	// ErrSigningKeyMissing 当前签名密钥丢失
+	ErrSigningKeyMissing = errors.New("current signing key is missing")
+
+	// ErrKeyInterfaceNotImplemented 存储的密钥未实现 Key 接口
+	ErrKeyInterfaceNotImplemented = errors.New("stored key does not implement Key interface")
+
+	// ErrNoActiveRefreshTokenKey 没有用于刷新令牌的活跃密钥
+	ErrNoActiveRefreshTokenKey = errors.New("hmac key check failed: no active key for refresh tokens")
+
+	// ErrSchedulerAlreadyStarted 调度器已启动
+	ErrSchedulerAlreadyStarted = errors.New("scheduler already started")
+
+	// ErrRotationInProgress 另一个实例正在进行轮换
+	ErrRotationInProgress = errors.New("rotation already in progress by another instance")
+
+	// ErrMemoryProviderOnly 操作仅支持 MemoryKeyProvider
+	ErrMemoryProviderOnly = errors.New("operation only supported for MemoryKeyProvider")
 )
 
 // ---------------------------------------------------------------------------
@@ -246,7 +288,20 @@ var (
 
 	// ErrPKCEVerificationFailed PKCE 验证失败
 	ErrPKCEVerificationFailed = errors.New("pkce verification failed")
+
+	// ErrPKCERandomnessGenerationFailed PKCE 随机数生成失败
+	ErrPKCERandomnessGenerationFailed = errors.New("failed to generate randomness for pkce")
+
+	// ErrUnsupportedPKCEChallengeMethod 不支持的 PKCE challenge 方法
+	ErrUnsupportedPKCEChallengeMethod = errors.New("unsupported pkce challenge method")
 )
+
+// ---------------------------------------------------------------------------
+// PAR Errors
+// ---------------------------------------------------------------------------
+
+// ErrInvalidURNFormat 无效的 URN 格式
+var ErrInvalidURNFormat = errors.New("invalid urn format")
 
 // ---------------------------------------------------------------------------
 // JWKS Errors
@@ -270,6 +325,15 @@ var (
 
 	// ErrMissingJWKFields 缺少 JWK 字段
 	ErrMissingJWKFields = errors.New("missing JWK fields")
+
+	// ErrUnsupportedJWKPublicKeyType 不支持的 JWK 公钥类型
+	ErrUnsupportedJWKPublicKeyType = errors.New("jwks: unsupported key type")
+
+	// ErrUnsupportedKtyForThumbprint 不支持的 kty 用于指纹计算
+	ErrUnsupportedKtyForThumbprint = errors.New("unsupported kty for thumbprint")
+
+	// ErrUnsupportedCurve 不支持的曲线
+	ErrUnsupportedCurve = errors.New("jwks: unsupported curve")
 )
 
 // ---------------------------------------------------------------------------
@@ -297,6 +361,9 @@ var (
 
 	// ErrUnsupportedSigningKeyType 不支持的签名密钥类型
 	ErrUnsupportedSigningKeyType = errors.New("unsupported signing key type")
+
+	// ErrUnsupportedAlgForHash 不支持的哈希计算算法
+	ErrUnsupportedAlgForHash = errors.New("unsupported alg for hash calculation")
 )
 
 // ---------------------------------------------------------------------------
@@ -363,53 +430,43 @@ var (
 
 	// ErrDefaultPassword 使用默认密码
 	ErrDefaultPassword = errors.New("default password")
+
+	// ErrIssuerURLRequired issuer URL 是必需的
+	ErrIssuerURLRequired = errors.New("issuer url is required")
+
+	// ErrStorageRequired storage 实现是必需的
+	ErrStorageRequired = errors.New("storage implementation is required")
+
+	// ErrHasherRequired hasher 实现是必需的
+	ErrHasherRequired = errors.New("hasher implementation is required")
+
+	// ErrSecretHasherRequired 机密客户端需要 secret hasher
+	ErrSecretHasherRequired = errors.New("secret hasher is required for confidential clients")
+
+	// ErrEnvTokenSecretRequired 环境变量 OIDC_TOKEN_SECRET 是必需的
+	ErrEnvTokenSecretRequired = errors.New("env OIDC_TOKEN_SECRET is required")
 )
 
 // ---------------------------------------------------------------------------
-// Claims Errors
-// ---------------------------------------------------------------------------
-
-// ErrUnsupportedAlgForHash 不支持的哈希计算算法
-var ErrUnsupportedAlgForHash = errors.New("unsupported alg for hash calculation")
-
-// ---------------------------------------------------------------------------
-// JWKS Extended Errors
+// Client SDK Errors
 // ---------------------------------------------------------------------------
 
 var (
-	// ErrUnsupportedJWKPublicKeyType 不支持的 JWK 公钥类型
-	ErrUnsupportedJWKPublicKeyType = errors.New("jwks: unsupported key type")
+	// ErrPARNotSupported 服务器不支持 PAR
+	ErrPARNotSupported = errors.New("server does not support PAR")
 
-	// ErrUnsupportedKtyForThumbprint 不支持的 kty 用于指纹计算
-	ErrUnsupportedKtyForThumbprint = errors.New("unsupported kty for thumbprint")
+	// ErrDeviceFlowNotSupported 服务器不支持设备流
+	ErrDeviceFlowNotSupported = errors.New("server does not support device flow")
 
-	// ErrUnsupportedCurve 不支持的曲线
-	ErrUnsupportedCurve = errors.New("jwks: unsupported curve")
-)
+	// ErrRevocationNotSupported 服务器不支持撤销
+	ErrRevocationNotSupported = errors.New("server does not support revocation")
 
-// ---------------------------------------------------------------------------
-// Key Manager Extended Errors
-// ---------------------------------------------------------------------------
+	// ErrIntrospectionNotSupported 服务器不支持内省
+	ErrIntrospectionNotSupported = errors.New("server does not support introspection")
 
-var (
-	// ErrUnsupportedECDSACurve 不支持的 ECDSA 曲线
-	ErrUnsupportedECDSACurve = errors.New("unsupported ECDSA curve")
+	// ErrNonceMismatch nonce 不匹配
+	ErrNonceMismatch = errors.New("nonce mismatch")
 
-	// ErrUnsupportedPrivateKeyType 不支持的私钥类型
-	ErrUnsupportedPrivateKeyType = errors.New("unsupported private key type")
-
-	// ErrSigningKeyMissing 当前签名密钥丢失
-	ErrSigningKeyMissing = errors.New("current signing key is missing")
-)
-
-// ---------------------------------------------------------------------------
-// PKCE Extended Errors
-// ---------------------------------------------------------------------------
-
-var (
-	// ErrPKCERandomnessGenerationFailed PKCE 随机数生成失败
-	ErrPKCERandomnessGenerationFailed = errors.New("failed to generate randomness for pkce")
-
-	// ErrUnsupportedPKCEChallengeMethod 不支持的 PKCE challenge 方法
-	ErrUnsupportedPKCEChallengeMethod = errors.New("unsupported pkce challenge method")
+	// ErrUnparseableError 请求失败且错误无法解析
+	ErrUnparseableError = errors.New("request failed with unparseable error")
 )

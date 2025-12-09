@@ -387,7 +387,7 @@ func (g *Issuer) idToken(ctx context.Context, req *IssuerRequest, at AccessToken
 
 	signedStr, err := token.SignedString(key)
 	if err != nil {
-		return "", fmt.Errorf("oidc: failed to sign id token: %w", err)
+		return "", fmt.Errorf("failed to sign id token: %w", err)
 	}
 	return IDToken(signedStr), nil
 }

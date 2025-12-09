@@ -99,11 +99,11 @@ func AuthError(w http.ResponseWriter, errorParam, desc string) {
 func GetClaims(ctx context.Context) (*oidc.AccessTokenClaims, error) {
 	identity := httpx.GetIdentity(ctx)
 	if identity == nil {
-		return nil, errors.New("identity not found in context")
+		return nil, ErrIdentityNotFound
 	}
 	claims, ok := identity.(*oidc.AccessTokenClaims)
 	if !ok {
-		return nil, errors.New("identity type mismatch")
+		return nil, ErrIdentityTypeMismatch
 	}
 	return claims, nil
 }

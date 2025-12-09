@@ -2,7 +2,6 @@ package persist
 
 import (
 	"context"
-	"errors"
 	"time"
 
 	"github.com/georgysavva/scany/v2/pgxscan"
@@ -12,11 +11,6 @@ import (
 )
 
 // 定义一些业务错误
-var (
-	ErrUserNotFound       = errors.New("user not found")
-	ErrCredentialNotFound = errors.New("credential not found")
-	ErrIdentifierExists   = errors.New("identifier already exists")
-)
 
 // UserCreate 事务性创建用户、Profile 和 Credentials
 func (s *PgxStorage) UserCreate(ctx context.Context, user *User, credentials []*Credential, profile *Profile) error {

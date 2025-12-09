@@ -64,7 +64,7 @@ func (v *ClientVerifier) Verify(ctx context.Context, rawToken string) (*IDTokenC
 		// 从 KeySource 获取公钥
 		pubKey, err := v.keySet.GetKey(ctx, kid)
 		if err != nil {
-			return nil, fmt.Errorf("oidc: failed to get public key: %w", err)
+			return nil, fmt.Errorf("failed to get public key: %w", err)
 		}
 		return pubKey, nil
 	}
@@ -79,7 +79,7 @@ func (v *ClientVerifier) Verify(ctx context.Context, rawToken string) (*IDTokenC
 		if errors.Is(err, jwt.ErrTokenSignatureInvalid) {
 			return nil, ErrTokenSignatureInvalid
 		}
-		return nil, fmt.Errorf("oidc: failed to parse token: %w", err)
+		return nil, fmt.Errorf("failed to parse token: %w", err)
 	}
 
 	if !token.Valid {
@@ -164,7 +164,7 @@ func (v *ResourceVerifier) Verify(ctx context.Context, rawToken string) (*Access
 		// 从 KeySource 获取公钥
 		pubKey, err := v.keySet.GetKey(ctx, kid)
 		if err != nil {
-			return nil, fmt.Errorf("oidc: failed to get public key: %w", err)
+			return nil, fmt.Errorf("failed to get public key: %w", err)
 		}
 		return pubKey, nil
 	}
@@ -179,7 +179,7 @@ func (v *ResourceVerifier) Verify(ctx context.Context, rawToken string) (*Access
 		if errors.Is(err, jwt.ErrTokenSignatureInvalid) {
 			return nil, ErrTokenSignatureInvalid
 		}
-		return nil, fmt.Errorf("oidc: failed to parse token: %w", err)
+		return nil, fmt.Errorf("failed to parse token: %w", err)
 	}
 
 	if !token.Valid {

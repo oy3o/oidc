@@ -2,7 +2,6 @@ package persist
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/georgysavva/scany/v2/pgxscan"
@@ -30,7 +29,7 @@ func (s *PgxStorage) ClientFindByID(ctx context.Context, clientID oidc.BinaryUUI
 func (s *PgxStorage) ClientCreate(ctx context.Context, metadata *oidc.ClientMetadata) (oidc.RegisteredClient, error) {
 	if metadata.IsConfidentialClient {
 		if len(metadata.Secret) == 0 {
-			return nil, fmt.Errorf("confidential client requires a hashed secret")
+			return nil, ErrConfidentialClientSecretRequired
 		}
 	}
 	metadata.UpdatedAt = time.Now()

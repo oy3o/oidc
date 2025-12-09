@@ -68,7 +68,7 @@ func RegisterClient(ctx context.Context, storage ClientStorage, hasher Hasher, r
 	// 2. 生成 Client ID
 	uuidV7, err := uuid.NewV7()
 	if err != nil {
-		return nil, fmt.Errorf("oidc: failed to generate client id: %w", err)
+		return nil, fmt.Errorf("failed to generate client id: %w", err)
 	}
 	clientID := BinaryUUID(uuidV7)
 
@@ -108,16 +108,16 @@ func RegisterClient(ctx context.Context, storage ClientStorage, hasher Hasher, r
 		// 生成高强度随机密钥 (32字节 = 256位)
 		plainSecret, err = RandomString(32)
 		if err != nil {
-			return nil, fmt.Errorf("oidc: failed to generate secret: %w", err)
+			return nil, fmt.Errorf("failed to generate secret: %w", err)
 		}
 
 		// [安全] 进行哈希处理
 		if hasher == nil {
-			return nil, fmt.Errorf("oidc: secret hasher is required for confidential clients")
+			return nil, ErrSecretHasherRequired
 		}
 		hashedSecret, err := hasher.Hash(ctx, []byte(plainSecret))
 		if err != nil {
-			return nil, fmt.Errorf("oidc: failed to hash secret: %w", err)
+			return nil, fmt.Errorf("failed to hash secret: %w", err)
 		}
 
 		metadata.Secret = SecretString(hashedSecret)
@@ -126,7 +126,7 @@ func RegisterClient(ctx context.Context, storage ClientStorage, hasher Hasher, r
 	// 5. 持久化
 	_, err = storage.ClientCreate(ctx, metadata)
 	if err != nil {
-		return nil, fmt.Errorf("oidc: repository failed: %w", err)
+		return nil, fmt.Errorf("repository failed: %w", err)
 	}
 
 	// 6. 构造响应 (返回明文 Secret)

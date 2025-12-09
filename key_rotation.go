@@ -62,16 +62,16 @@ type KeyRotationScheduler struct {
 func NewKeyRotationScheduler(manager *KeyManager, lock DistributedLock, config KeyRotationConfig) *KeyRotationScheduler {
 	// 参数校验
 	if manager == nil {
-		panic("oidc: KeyManager cannot be nil")
+		panic("KeyManager cannot be nil")
 	}
 	if lock == nil {
-		panic("oidc: DistributedLock cannot be nil")
+		panic("DistributedLock cannot be nil")
 	}
 	if config.RotationInterval <= 0 {
-		panic("oidc: RotationInterval must be positive")
+		panic("RotationInterval must be positive")
 	}
 	if config.GracePeriod < 0 {
-		panic("oidc: GracePeriod cannot be negative")
+		panic("GracePeriod cannot be negative")
 	}
 
 	// 设置默认清理间隔
@@ -144,7 +144,7 @@ func (s *KeyRotationScheduler) Start(ctx context.Context) error {
 		return nil
 	}
 
-	return fmt.Errorf("scheduler already started")
+	return ErrSchedulerAlreadyStarted
 }
 
 // Stop 停止调度器
@@ -168,7 +168,7 @@ func (s *KeyRotationScheduler) RotateNow(ctx context.Context) error {
 		return fmt.Errorf("failed to acquire rotation lock: %w", err)
 	}
 	if !locked {
-		return fmt.Errorf("rotation already in progress by another instance")
+		return ErrRotationInProgress
 	}
 	defer s.lock.Unlock(ctx, "rotate_key")
 

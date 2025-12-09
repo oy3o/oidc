@@ -81,27 +81,27 @@ func Discover(ctx context.Context, issuer string, httpClient *http.Client) (*Dis
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, wellKnownPath, nil)
 	if err != nil {
-		return nil, fmt.Errorf("oidc: failed to create discovery request: %w", err)
+		return nil, fmt.Errorf("failed to create discovery request: %w", err)
 	}
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("oidc: discovery request failed: %w", err)
+		return nil, fmt.Errorf("discovery request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("oidc: discovery failed with status code %d", resp.StatusCode)
+		return nil, fmt.Errorf("discovery failed with status code %d", resp.StatusCode)
 	}
 
 	var config Discovery
 	if err := DecodeJSON(resp.Body, &config); err != nil {
-		return nil, fmt.Errorf("oidc: failed to decode discovery document: %w", err)
+		return nil, fmt.Errorf("failed to decode discovery document: %w", err)
 	}
 
 	// 简单的校验：确保返回的 Issuer 与请求的一致
 	if config.Issuer != issuer {
-		return nil, fmt.Errorf("oidc: issuer mismatch (expected %s, got %s)", issuer, config.Issuer)
+		return nil, fmt.Errorf("issuer mismatch (expected %s, got %s)", issuer, config.Issuer)
 	}
 
 	return &config, nil
@@ -184,7 +184,7 @@ func (r *RemoteKeySet) GetKey(ctx context.Context, kid string) (crypto.PublicKey
 			if key, ok := r.cachedKeys.Load(kid); ok {
 				return key, nil
 			}
-			return nil, fmt.Errorf("oidc: remote JWKS unavailable (circuit breaker open)")
+			return nil, ErrCircuitBreakerOpen
 		}
 		// 尝试恢复
 		r.circuitBreakerOpen.Store(false)
@@ -227,7 +227,7 @@ func (r *RemoteKeySet) GetKey(ctx context.Context, kid string) (crypto.PublicKey
 	// 3. 返回结果
 	key, ok = r.cachedKeys.Load(kid)
 	if !ok {
-		return nil, fmt.Errorf("oidc: key %s not found in remote jwks", kid)
+		return nil, fmt.Errorf("key %s not found in remote jwks", kid)
 	}
 	return key, nil
 }
@@ -249,7 +249,7 @@ func (r *RemoteKeySet) fetchJWKS(ctx context.Context) (*JSONWebKeySet, time.Dura
 
 	if resp.StatusCode != http.StatusOK {
 		r.recordFailure()
-		return nil, 0, fmt.Errorf("oidc: jwks endpoint returned %d", resp.StatusCode)
+		return nil, 0, fmt.Errorf("jwks endpoint returned %d", resp.StatusCode)
 	}
 
 	// 解析 Cache-Control

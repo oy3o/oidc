@@ -68,13 +68,13 @@ type Server struct {
 func NewServer(cfg ServerConfig) (*Server, error) {
 	// 1. 基础校验
 	if cfg.Issuer == "" {
-		return nil, fmt.Errorf("oidc: issuer url is required")
+		return nil, ErrIssuerURLRequired
 	}
 	if cfg.Storage == nil {
-		return nil, fmt.Errorf("oidc: storage implementation is required")
+		return nil, ErrStorageRequired
 	}
 	if cfg.Hasher == nil {
-		return nil, fmt.Errorf("oidc: hasher implementation is required")
+		return nil, ErrHasherRequired
 	}
 
 	// 2. 设置默认 TTL
@@ -112,7 +112,7 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 	}
 	issuer, err := NewIssuer(issuerCfg, km)
 	if err != nil {
-		return nil, fmt.Errorf("oidc: failed to create issuer: %w", err)
+		return nil, fmt.Errorf("failed to create issuer: %w", err)
 	}
 
 	s := &Server{
@@ -171,7 +171,7 @@ func (s *Server) ValidateKeys(ctx context.Context) error {
 
 	// 验证对称密钥 (Refresh Token)
 	if key, _ := s.secretManager.GetSigningKey(ctx); len(key) == 0 {
-		return fmt.Errorf("hmac key check failed: no active key for refresh tokens")
+		return ErrNoActiveRefreshTokenKey
 	}
 
 	return nil

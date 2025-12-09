@@ -12,7 +12,7 @@ import (
 func LoadTokenSecret() ([]byte, error) {
 	hexStr := os.Getenv("OIDC_TOKEN_SECRET")
 	if hexStr == "" {
-		return nil, fmt.Errorf("env OIDC_TOKEN_SECRET is required")
+		return nil, ErrEnvTokenSecretRequired
 	}
 	// 解码为原始字节
 	return hex.DecodeString(hexStr)
@@ -51,7 +51,7 @@ func (s *SecretManager) AddKey(id string, hexSecret string) error {
 		return memProvider.AddKey(id, b)
 	}
 
-	return fmt.Errorf("AddKey is only supported for MemoryKeyProvider")
+	return ErrMemoryProviderOnly
 }
 
 // SetActiveKey 设置活跃密钥（向后兼容的便捷方法）
@@ -60,7 +60,7 @@ func (s *SecretManager) SetActiveKey(kid string) error {
 	if memProvider, ok := s.provider.(*MemoryKeyProvider); ok {
 		return memProvider.SetActiveKey(kid)
 	}
-	return fmt.Errorf("SetActiveKey is only supported for MemoryKeyProvider")
+	return ErrMemoryProviderOnly
 }
 
 // GetSigningKey 获取签名用的密钥 (HMAC Key)
@@ -94,7 +94,7 @@ func (s *SecretManager) RotateKey(newKID string, newHexSecret string, gracePerio
 		return memProvider.RotateKey(newKID, newKey, gracePeriod)
 	}
 
-	return fmt.Errorf("RotateKey is only supported for MemoryKeyProvider")
+	return ErrMemoryProviderOnly
 }
 
 // CleanupExpiredKeys 清理已过期的密钥
@@ -103,5 +103,5 @@ func (s *SecretManager) CleanupExpiredKeys() (int, error) {
 	if memProvider, ok := s.provider.(*MemoryKeyProvider); ok {
 		return memProvider.CleanupExpiredKeys(context.Background()), nil
 	}
-	return 0, fmt.Errorf("CleanupExpiredKeys is only supported for MemoryKeyProvider")
+	return 0, ErrMemoryProviderOnly
 }

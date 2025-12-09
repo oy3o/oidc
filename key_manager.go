@@ -224,7 +224,7 @@ func (km *KeyManager) GetKeyInternal(ctx context.Context, kid string) (Key, erro
 
 	key, ok := rawKey.(Key)
 	if !ok {
-		return nil, fmt.Errorf("stored key does not implement Key interface")
+		return nil, ErrKeyInterfaceNotImplemented
 	}
 
 	// 4. 更新缓存

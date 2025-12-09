@@ -124,7 +124,7 @@ var urnRegex = regexp.MustCompile(`^urn:[a-zA-Z0-9][a-zA-Z0-9-]{0,31}:.+$`)
 // ValidateURN 验证 URN 格式
 func ValidateURN(uri string) error {
 	if !urnRegex.MatchString(uri) {
-		return fmt.Errorf("invalid urn format")
+		return ErrInvalidURNFormat
 	}
 	// 如果正则通过，通常 url.Parse 也就没问题了，但为了保险可以再 Parse 一次
 	return nil

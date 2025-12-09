@@ -2,7 +2,6 @@ package persist
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
@@ -15,7 +14,7 @@ import (
 // JWKSave 存储 JWK
 func (s *PgxStorage) JWKSave(ctx context.Context, key jwk.Key) error {
 	if key.KeyID() == "" {
-		return errors.New("key must have a kid")
+		return oidc.ErrKIDEmpty
 	}
 
 	// 序列化为 JSON (包含私钥)

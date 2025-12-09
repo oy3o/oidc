@@ -45,13 +45,13 @@ func NewMemoryKeyProvider() *MemoryKeyProvider {
 func (m *MemoryKeyProvider) GetKey(ctx context.Context, kid string) ([]byte, error) {
 	key, ok := m.keys.Load(kid)
 	if !ok {
-		return nil, fmt.Errorf("key not found: %s", kid)
+		return nil, fmt.Errorf("%w: %s", ErrKeyNotFound, kid)
 	}
 
 	// 检查是否已过期（对于 deprecated keys）
 	if expireAt, isDeprecated := m.deprecated.Load(kid); isDeprecated {
 		if time.Now().After(expireAt) {
-			return nil, fmt.Errorf("key expired: %s", kid)
+			return nil, fmt.Errorf("%w: %s", ErrKeyExpired, kid)
 		}
 	}
 
@@ -61,12 +61,12 @@ func (m *MemoryKeyProvider) GetKey(ctx context.Context, kid string) ([]byte, err
 // GetActiveKey 实现 KeyProvider 接口
 func (m *MemoryKeyProvider) GetActiveKey(ctx context.Context) (string, []byte, error) {
 	if m.activeKeyID == "" {
-		return "", nil, fmt.Errorf("no active key set")
+		return "", nil, ErrNoActiveKey
 	}
 
 	key, ok := m.keys.Load(m.activeKeyID)
 	if !ok {
-		return "", nil, fmt.Errorf("active key not found: %s", m.activeKeyID)
+		return "", nil, fmt.Errorf("active key %s not found: %w", m.activeKeyID, ErrKeyNotFound)
 	}
 
 	return m.activeKeyID, key, nil
@@ -97,10 +97,10 @@ func (m *MemoryKeyProvider) ListKeys(ctx context.Context) (map[string][]byte, er
 // AddKey 添加新密钥
 func (m *MemoryKeyProvider) AddKey(kid string, key []byte) error {
 	if kid == "" {
-		return fmt.Errorf("kid cannot be empty")
+		return ErrKIDEmpty
 	}
 	if len(key) < 32 {
-		return fmt.Errorf("key must be at least 32 bytes")
+		return ErrKeyTooShort
 	}
 
 	// 复制密钥，避免外部修改
@@ -119,7 +119,7 @@ func (m *MemoryKeyProvider) AddKey(kid string, key []byte) error {
 // SetActiveKey 设置活跃密钥
 func (m *MemoryKeyProvider) SetActiveKey(kid string) error {
 	if _, ok := m.keys.Load(kid); !ok {
-		return fmt.Errorf("key not found: %s", kid)
+		return fmt.Errorf("%w: %s", ErrKeyNotFound, kid)
 	}
 
 	m.activeKeyID = kid
@@ -132,10 +132,10 @@ func (m *MemoryKeyProvider) SetActiveKey(kid string) error {
 // 3. 将旧密钥标记为 deprecated（但保留验证能力）
 func (m *MemoryKeyProvider) RotateKey(newKID string, newKey []byte, gracePeriod time.Duration) error {
 	if newKID == "" {
-		return fmt.Errorf("new kid cannot be empty")
+		return ErrKIDEmpty
 	}
 	if len(newKey) < 32 {
-		return fmt.Errorf("new key must be at least 32 bytes")
+		return ErrKeyTooShort
 	}
 
 	// 保存旧的活跃密钥 ID
@@ -161,7 +161,7 @@ func (m *MemoryKeyProvider) RotateKey(newKID string, newKey []byte, gracePeriod 
 // 注意：不能删除当前活跃的密钥
 func (m *MemoryKeyProvider) RemoveKey(kid string) error {
 	if kid == m.activeKeyID {
-		return fmt.Errorf("cannot remove active key")
+		return ErrCannotRemoveActiveKey
 	}
 
 	m.keys.Delete(kid)

@@ -47,7 +47,7 @@ func NewClient(ctx context.Context, cfg ClientConfig, httpClient *http.Client) (
 	// 1. 自动发现配置
 	discovery, err := Discover(ctx, cfg.Issuer, httpClient)
 	if err != nil {
-		return nil, fmt.Errorf("oidc: failed to discover issuer: %w", err)
+		return nil, fmt.Errorf("failed to discover issuer: %w", err)
 	}
 
 	// 2. 初始化远程 JWKS 加载器 (用于验证 ID Token)
@@ -110,7 +110,7 @@ func (c *Client) AuthCodeURL(state string, opts ...AuthCodeOption) string {
 func (c *Client) PushAuthorize(ctx context.Context, state string, opts ...AuthCodeOption) (authURL string, requestURI string, err error) {
 	endpoint := c.discovery.PushedAuthorizationRequestEndpoint
 	if endpoint == "" {
-		return "", "", fmt.Errorf("oidc: server does not support PAR")
+		return "", "", ErrPARNotSupported
 	}
 
 	// 1. 准备参数
@@ -222,7 +222,7 @@ func (c *Client) ExchangeClientCredentials(ctx context.Context, scope ...string)
 func (c *Client) RequestDeviceAuthorization(ctx context.Context) (*DeviceAuthorizationResponse, error) {
 	endpoint := c.discovery.DeviceAuthorizationEndpoint
 	if endpoint == "" {
-		return nil, fmt.Errorf("oidc: server does not support device flow")
+		return nil, ErrDeviceFlowNotSupported
 	}
 
 	v := url.Values{}
@@ -340,7 +340,7 @@ func (c *Client) UserInfo(ctx context.Context, accessToken string) (*UserInfo, e
 
 	var userInfo UserInfo
 	if err := DecodeJSON(resp.Body, &userInfo); err != nil {
-		return nil, fmt.Errorf("oidc: failed to decode userinfo: %w", err)
+		return nil, fmt.Errorf("failed to decode userinfo: %w", err)
 	}
 
 	return &userInfo, nil
@@ -350,7 +350,7 @@ func (c *Client) UserInfo(ctx context.Context, accessToken string) (*UserInfo, e
 func (c *Client) AccessTokenRevoke(ctx context.Context, token string, hint string) error {
 	endpoint := c.discovery.RevocationEndpoint
 	if endpoint == "" {
-		return fmt.Errorf("oidc: server does not support revocation")
+		return ErrRevocationNotSupported
 	}
 
 	v := url.Values{}
@@ -382,7 +382,7 @@ func (c *Client) AccessTokenRevoke(ctx context.Context, token string, hint strin
 func (c *Client) Introspect(ctx context.Context, token string) (*IntrospectionResponse, error) {
 	endpoint := c.discovery.IntrospectionEndpoint
 	if endpoint == "" {
-		return nil, fmt.Errorf("oidc: server does not support introspection")
+		return nil, ErrIntrospectionNotSupported
 	}
 
 	v := url.Values{}
@@ -469,7 +469,7 @@ func (c *Client) doTokenRequest(ctx context.Context, v url.Values) (*Token, erro
 
 	var token Token
 	if err := DecodeJSON(resp.Body, &token); err != nil {
-		return nil, fmt.Errorf("oidc: failed to decode token response: %w", err)
+		return nil, fmt.Errorf("failed to decode token response: %w", err)
 	}
 
 	if token.ExpiresIn > 0 {
@@ -480,12 +480,12 @@ func (c *Client) doTokenRequest(ctx context.Context, v url.Values) (*Token, erro
 	if token.IDToken != "" && c.verifier != nil {
 		claims, err := c.verifier.Verify(ctx, token.IDToken)
 		if err != nil {
-			return nil, fmt.Errorf("oidc: id_token verification failed: %w", err)
+			return nil, fmt.Errorf("id_token verification failed: %w", err)
 		}
 		// 校验 nonce
 		nonce := v.Get("nonce")
 		if nonce != "" && claims.Nonce != nonce {
-			return nil, fmt.Errorf("oidc: nonce mismatch")
+			return nil, ErrNonceMismatch
 		}
 		token.IDTokenClaims = claims
 	}
@@ -511,7 +511,7 @@ func (c *Client) authenticateClient(req *http.Request, v url.Values) {
 func (c *Client) parseError(r io.Reader) error {
 	var errResp Error
 	if err := DecodeJSON(r, &errResp); err != nil {
-		return fmt.Errorf("oidc: request failed with unparseable error")
+		return ErrUnparseableError
 	}
 	return &errResp
 }
@@ -572,7 +572,7 @@ func (c *Client) applyDPoP(req *http.Request) error {
 
 	proof, err := token.SignedString(c.dpopKey)
 	if err != nil {
-		return fmt.Errorf("oidc: failed to sign dpop proof: %w", err)
+		return fmt.Errorf("failed to sign dpop proof: %w", err)
 	}
 
 	req.Header.Set("DPoP", proof)

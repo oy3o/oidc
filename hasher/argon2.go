@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/base64"
-	"errors"
 	"fmt"
 	"strings"
 
@@ -100,7 +99,7 @@ func (h *Argon2Hasher) Compare(ctx context.Context, hashedPassword []byte, passw
 		return nil // 匹配成功
 	}
 
-	return errors.New("password hash does not match")
+	return ErrPasswordMismatch
 }
 
 type argon2Params struct {
@@ -114,7 +113,7 @@ type argon2Params struct {
 func (h *Argon2Hasher) decodeHash(encodedHash string) (p *argon2Params, salt, hash []byte, err error) {
 	vals := strings.Split(encodedHash, "$")
 	if len(vals) != 6 {
-		return nil, nil, nil, errors.New("invalid argon2id hash format")
+		return nil, nil, nil, ErrInvalidHashFormat
 	}
 
 	var version int
@@ -123,7 +122,7 @@ func (h *Argon2Hasher) decodeHash(encodedHash string) (p *argon2Params, salt, ha
 		return nil, nil, nil, fmt.Errorf("failed to parse version: %w", err)
 	}
 	if version != argon2.Version {
-		return nil, nil, nil, fmt.Errorf("incompatible argon2 version: %d", version)
+		return nil, nil, nil, fmt.Errorf("%w: %d", ErrIncompatibleVersion, version)
 	}
 
 	p = &argon2Params{}

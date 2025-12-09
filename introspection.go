@@ -41,7 +41,7 @@ func Introspect(ctx context.Context, storage Storage, verifier TokenVerifier, to
 	if err == nil {
 		// 检查是否撤销
 		if claims.ID != "" {
-			revoked, err := storage.IsRevoked(ctx, claims.ID)
+			revoked, err := storage.AccessTokenIsRevoked(ctx, claims.ID)
 			if err != nil {
 				return nil, fmt.Errorf("failed to check revocation: %w", err)
 			}
@@ -76,7 +76,7 @@ func Introspect(ctx context.Context, storage Storage, verifier TokenVerifier, to
 	// Refresh Token 是哈希存储的，所以我们需要先计算哈希
 	// 注意：这里假设 tokenStr 是原始的 Refresh Token 字符串
 	tokenHash := RefreshToken(tokenStr).HashForDB()
-	session, err := storage.GetRefreshToken(ctx, tokenHash)
+	session, err := storage.RefreshTokenGet(ctx, tokenHash)
 	if err == nil {
 		// 检查是否过期
 		if time.Now().After(session.ExpiresAt) {

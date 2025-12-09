@@ -8,7 +8,6 @@ import (
 	"math/big"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
 )
 
@@ -45,7 +44,7 @@ func DeviceAuthorization(ctx context.Context, storage Storage, issuer string, re
 	if err != nil {
 		return nil, fmt.Errorf("%w: invalid client_id", ErrInvalidRequest)
 	}
-	client, err := storage.GetClient(ctx, clientIDRaw)
+	client, err := storage.ClientFindByID(ctx, clientIDRaw)
 	if err != nil {
 		return nil, fmt.Errorf("%w: invalid client", ErrInvalidClient)
 	}
@@ -71,7 +70,7 @@ func DeviceAuthorization(ctx context.Context, storage Storage, issuer string, re
 		Status:     DeviceCodeStatusPending,
 	}
 
-	if err := storage.SaveDeviceCode(ctx, session); err != nil {
+	if err := storage.DeviceCodeSave(ctx, session); err != nil {
 		return nil, fmt.Errorf("failed to save device code: %w", err)
 	}
 
@@ -95,7 +94,7 @@ func DeviceAuthorized(ctx context.Context, storage Storage, req *DeviceAuthorize
 	}
 
 	// 2. 通过 UserCode 查找会话 (Redis/Cache 层)
-	session, err := storage.GetDeviceCodeSessionByUserCode(ctx, req.UserCode)
+	session, err := storage.DeviceCodeGetByUserCode(ctx, req.UserCode)
 	if err != nil {
 		if errors.Is(err, ErrTokenNotFound) {
 			// 为了安全，不要明确提示是 Code 不存在还是过期，统称无效
@@ -122,13 +121,13 @@ func DeviceAuthorized(ctx context.Context, storage Storage, req *DeviceAuthorize
 	}
 
 	// 6. 解析并绑定 UserID
-	uidRaw, err := uuid.Parse(req.UserID)
+	uid, err := ParseUUID(req.UserID)
 	if err != nil {
 		return fmt.Errorf("%w: invalid user_id format", ErrInvalidRequest)
 	}
 
 	// 7. 更新会话状态
-	session.UserID = BinaryUUID(uidRaw)
+	session.UserID = uid
 	session.Status = DeviceCodeStatusAllowed
 	session.AuthTime = time.Now() // 记录用户授权时间
 
@@ -142,7 +141,7 @@ func DeviceAuthorized(ctx context.Context, storage Storage, req *DeviceAuthorize
 
 	// 8. 持久化更新
 	// 注意：DeviceCodeSession 的存储通常以 DeviceCode 为主键
-	if err := storage.UpdateDeviceCodeSession(ctx, session.DeviceCode, session); err != nil {
+	if err := storage.DeviceCodeUpdate(ctx, session.DeviceCode, session); err != nil {
 		return fmt.Errorf("failed to update device session: %w", err)
 	}
 
@@ -155,7 +154,7 @@ func DeviceDenied(ctx context.Context, storage Storage, userCode string) error {
 		return fmt.Errorf("%w: user_code is required", ErrInvalidRequest)
 	}
 
-	session, err := storage.GetDeviceCodeSessionByUserCode(ctx, userCode)
+	session, err := storage.DeviceCodeGetByUserCode(ctx, userCode)
 	if err != nil {
 		return err
 	}
@@ -169,7 +168,7 @@ func DeviceDenied(ctx context.Context, storage Storage, userCode string) error {
 
 	// 更新存储
 	// 客户端下一次轮询时会收到 access_denied 错误
-	return storage.UpdateDeviceCodeSession(ctx, session.DeviceCode, session)
+	return storage.DeviceCodeUpdate(ctx, session.DeviceCode, session)
 }
 
 // DeviceTokenExchange 处理设备码换取 Token
@@ -179,7 +178,7 @@ func DeviceTokenExchange(ctx context.Context, storage Storage, issuer *Issuer, r
 		return nil, fmt.Errorf("%w: device_code is required", ErrInvalidRequest)
 	}
 
-	session, err := storage.GetDeviceCodeSession(ctx, req.DeviceCode)
+	session, err := storage.DeviceCodeGet(ctx, req.DeviceCode)
 	if err != nil {
 		return nil, fmt.Errorf("%w: invalid device_code", ErrInvalidGrant)
 	}
@@ -187,7 +186,7 @@ func DeviceTokenExchange(ctx context.Context, storage Storage, issuer *Issuer, r
 	// 2. 检查过期
 	if time.Now().After(session.ExpiresAt) {
 		// 过期了也可以顺手清理一下
-		_ = storage.RemoveDeviceCodeSession(ctx, req.DeviceCode)
+		_ = storage.DeviceCodeDelete(ctx, req.DeviceCode)
 		return nil, ErrExpiredToken
 	}
 
@@ -200,7 +199,7 @@ func DeviceTokenExchange(ctx context.Context, storage Storage, issuer *Issuer, r
 	case DeviceCodeStatusDenied:
 		// 用户明确拒绝了
 		// 关键：返回 AccessDenied 错误，并清理 Session，让这个 Code 作废
-		_ = storage.RemoveDeviceCodeSession(ctx, req.DeviceCode)
+		_ = storage.DeviceCodeDelete(ctx, req.DeviceCode)
 		return nil, ErrAccessDenied
 
 	case DeviceCodeStatusAllowed:
@@ -226,7 +225,7 @@ func DeviceTokenExchange(ctx context.Context, storage Storage, issuer *Issuer, r
 
 	// 5. 成功发证后，立即销毁 Device Code Session
 	// 防止重放攻击 (RFC 8628 要求 Device Code 是一次性的)
-	if err := storage.RemoveDeviceCodeSession(ctx, req.DeviceCode); err != nil {
+	if err := storage.DeviceCodeDelete(ctx, req.DeviceCode); err != nil {
 		// 如果清理失败，记录日志但不阻断流程，因为 Token 已经生成
 		log.Error().Err(err).Msg("Failed to cleanup device code session")
 	}

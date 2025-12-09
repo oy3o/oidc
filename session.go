@@ -47,7 +47,7 @@ func EndSession(ctx context.Context, storage Storage, verifier TokenVerifier, re
 	// 2. 执行登出逻辑
 	// 2.1 撤销该用户的所有 Refresh Tokens
 	if userID != (BinaryUUID{}) {
-		if _, err := storage.RevokeTokensForUser(ctx, userID); err != nil {
+		if _, err := storage.RefreshTokenRevokeUser(ctx, userID); err != nil {
 			return "", fmt.Errorf("failed to revoke user tokens: %w", err)
 		}
 	}
@@ -60,7 +60,7 @@ func EndSession(ctx context.Context, storage Storage, verifier TokenVerifier, re
 		if err == nil && claims.ID != "" {
 			// 将 JTI 加入黑名单，直到 Token 过期
 			// 注意：即使解析失败也继续登出流程，不阻塞用户登出
-			if err := storage.Revoke(ctx, claims.ID, claims.ExpiresAt.Time); err != nil {
+			if err := storage.AccessTokenRevoke(ctx, claims.ID, claims.ExpiresAt.Time); err != nil {
 				// 记录日志，但不阻塞登出
 				log.Warn().Err(err).Str("jti", claims.ID).Msg("Failed to revoke access token during logout")
 			}
@@ -71,7 +71,7 @@ func EndSession(ctx context.Context, storage Storage, verifier TokenVerifier, re
 	// 必须与 Client 注册的 URI 匹配
 	redirectURL := ""
 	if req.PostLogoutRedirectURI != "" && clientID != (BinaryUUID{}) {
-		client, err := storage.GetClient(ctx, clientID)
+		client, err := storage.ClientFindByID(ctx, clientID)
 		if err == nil {
 			// 这里应该检查 PostLogoutRedirectURIs，但接口里只有 GetRedirectURIs
 			// 简化处理：检查是否在 RedirectURIs 中

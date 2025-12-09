@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/bytedance/sonic"
 	"github.com/lestrrat-go/jwx/v2/jwk"
 )
 
@@ -44,54 +45,132 @@ type ClientFactory interface {
 	New() RegisteredClient
 }
 
-// ClientMetadata 包含客户端注册信息
+// ClientMetadata 客户端注册信息
+// 对应 OAuth 2.0 Dynamic Client Registration Protocol
 type ClientMetadata struct {
-	ID                      BinaryUUID
-	OwnerID                 BinaryUUID
-	Secret                  String // 存储哈希后的 Secret。对于机密客户端，在调用 CreateClient 之前必须先通过 Hasher.Hash() 哈希
-	RedirectURIs            []string
-	GrantTypes              []string
-	Scope                   string
-	Name                    string
-	LogoURI                 string
-	TokenEndpointAuthMethod string
-	IsConfidential          bool
-	CreatedAt               time.Time
+	// ID: 主键，使用 UUID
+	ID BinaryUUID `db:"id"`
+
+	// OwnerID: 用于查询“我创建的应用”，需要索引
+	OwnerID BinaryUUID `db:"owner_id"`
+
+	// Secret: 客户端密钥，经过哈希，预留足够长度
+	Secret SecretString `db:"secret"`
+
+	// Name: 应用名称
+	Name string `db:"name"`
+
+	// 数组类型处理：
+	RedirectURIs StringSlice `db:"redirect_uris"`
+	GrantTypes   StringSlice `db:"grant_types"`
+
+	// Scope: 空格分隔的字符串，或者也可以用 type:text
+	Scope string `db:"scope"`
+
+	LogoURI                 string `db:"logo_uri"`
+	TokenEndpointAuthMethod string `db:"token_endpoint_auth_method"`
+
+	// IsConfidentialClient: 区分公开/机密客户端
+	IsConfidentialClient bool `db:"is_confidential_client"`
+
+	CreatedAt time.Time `db:"created_at"`
+	UpdatedAt time.Time `db:"updated_at"`
+}
+
+func (ClientMetadata) TableName() string            { return "oidc_clients" }
+func (c *ClientMetadata) GetID() BinaryUUID         { return c.ID }
+func (c *ClientMetadata) GetRedirectURIs() []string { return c.RedirectURIs }
+func (c *ClientMetadata) GetGrantTypes() []string   { return c.GrantTypes }
+func (c *ClientMetadata) GetScope() string          { return c.Scope }
+func (c *ClientMetadata) IsConfidential() bool      { return c.IsConfidentialClient }
+func (c *ClientMetadata) Serialize() (string, error) {
+	// 1. 定义一个别名。Aux 拥有 ClientMetadata 的所有字段，
+	// 但不会继承 ClientMetadata 及其字段类型（SecretString）绑定的方法。
+	type Aux ClientMetadata
+
+	// 2. 创建一个影子结构体
+	aux := &struct {
+		// 强制将 SecretString 转换为 string，绕过脱敏逻辑
+		Secret string `json:"secret"`
+		*Aux
+	}{
+		Secret: string(c.Secret),
+		Aux:    (*Aux)(c),
+	}
+
+	b, err := sonic.ConfigDefault.Marshal(aux)
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
+}
+
+func (c *ClientMetadata) Deserialize(data string) error {
+	type Alias ClientMetadata
+
+	// 同样使用影子结构体来接收数据
+	aux := &struct {
+		Secret string `json:"secret"`
+		*Alias
+	}{
+		Alias: (*Alias)(c),
+	}
+
+	if err := sonic.ConfigDefault.Unmarshal([]byte(data), &aux); err != nil {
+		return err
+	}
+
+	// 还原回 SecretString 类型
+	c.Secret = SecretString(aux.Secret)
+	return nil
+}
+
+// ValidateSecret 需要 hasher 协助，这里只提供数据，逻辑在 Server 层或 Storage 方法中
+// 为了满足接口，我们在 Storage 实现中处理，这里仅作占位
+func (c *ClientMetadata) ValidateSecret(ctx context.Context, hasher Hasher, secret string) error {
+	// 如果是 Public Client，无需验证
+	if !c.IsConfidentialClient {
+		return nil
+	}
+	if hasher == nil {
+		return ErrHasherNotConfigured
+	}
+	return hasher.Compare(ctx, []byte(c.Secret), []byte(secret))
 }
 
 // ClientStorage 定义了获取客户端信息的接口。
 type ClientStorage interface {
-	// GetClient 根据 ID 获取客户端详情。
+	// ClientFindByID 根据 ID 获取客户端详情。
 	// 如果未找到，应返回 ErrClientNotFound。
-	GetClient(ctx context.Context, clientID BinaryUUID) (RegisteredClient, error)
+	ClientFindByID(ctx context.Context, clientID BinaryUUID) (RegisteredClient, error)
 
-	// CreateClient 注册新客户端
+	// ClientCreate 注册新客户端
 	// 注意：metadata.Secret 必须已经通过 Hasher.Hash() 哈希处理
-	CreateClient(ctx context.Context, metadata ClientMetadata) (RegisteredClient, error)
+	ClientCreate(ctx context.Context, metadata *ClientMetadata) (RegisteredClient, error)
 
-	// UpdateClient 更新客户端元数据
-	UpdateClient(ctx context.Context, clientID BinaryUUID, metadata ClientMetadata) (RegisteredClient, error)
+	// ClientUpdate 更新客户端元数据
+	ClientUpdate(ctx context.Context, clientID BinaryUUID, metadata *ClientMetadata) (RegisteredClient, error)
 
-	// DeleteClient 删除客户端
-	DeleteClient(ctx context.Context, clientID BinaryUUID) error
+	// ClientDeleteByID 删除客户端
+	ClientDeleteByID(ctx context.Context, clientID BinaryUUID) error
 
-	// ListClientsByOwner 根据所有者查询客户端 (可选)
-	ListClientsByOwner(ctx context.Context, ownerID BinaryUUID) ([]RegisteredClient, error)
+	// ClientListByOwner 根据所有者查询客户端 (可选)
+	ClientListByOwner(ctx context.Context, ownerID BinaryUUID) ([]RegisteredClient, error)
 
-	// ListClients 列出所有客户端
-	ListClients(ctx context.Context, query ListQuery) ([]RegisteredClient, error)
+	// ClientListAll 列出所有客户端
+	ClientListAll(ctx context.Context, query ListQuery) ([]RegisteredClient, error)
 }
 
 // ClientCache 定义了客户端信息的缓存接口。
 type ClientCache interface {
-	// GetClient 从缓存获取客户端
-	GetClient(ctx context.Context, clientID BinaryUUID) (RegisteredClient, error)
+	// ClientFindByID 从缓存获取客户端
+	ClientFindByID(ctx context.Context, clientID BinaryUUID) (RegisteredClient, error)
 
-	// SaveClient 将客户端存入缓存
-	SaveClient(ctx context.Context, client RegisteredClient, ttl time.Duration) error
+	// ClientCache 将客户端存入缓存
+	ClientCache(ctx context.Context, client RegisteredClient, ttl time.Duration) error
 
-	// InvalidateClient 从缓存中移除客户端
-	InvalidateClient(ctx context.Context, clientID BinaryUUID) error
+	// ClientInvalidate 从缓存中移除客户端
+	ClientInvalidate(ctx context.Context, clientID BinaryUUID) error
 }
 
 // Hasher 定义了密码哈希和验证的接口。
@@ -117,91 +196,107 @@ type ReplayCache interface {
 // PARStorage 管理推送授权请求 (Pushed Authorization Requests) 会话
 // RFC 9126: OAuth 2.0 Pushed Authorization Requests
 type PARStorage interface {
-	// SavePARSession 保存 PAR 会话
+	// PARSessionSave 保存 PAR 会话
 	// requestURI: 格式为 "urn:ietf:params:oauth:request_uri:<唯一标识>"
 	// req: 完整的授权请求参数
 	// ttl: 会话有效期，RFC 建议 60 秒
-	SavePARSession(ctx context.Context, requestURI string, req *AuthorizeRequest, ttl time.Duration) error
+	PARSessionSave(ctx context.Context, requestURI string, req *AuthorizeRequest, ttl time.Duration) error
 
-	// GetAndDeletePARSession 获取并删除 PAR 会话（原子操作）
+	// PARSessionConsume 获取并删除 PAR 会话（原子操作）
 	// PAR request_uri 只能使用一次
-	GetAndDeletePARSession(ctx context.Context, requestURI string) (*AuthorizeRequest, error)
+	PARSessionConsume(ctx context.Context, requestURI string) (*AuthorizeRequest, error)
 }
 
 // ---------------------------------------------------------------------------
 // Authorization Code Interfaces
 // ---------------------------------------------------------------------------
 
-// AuthCodeSession 包含授权码关联的所有上下文信息。
-// 这些信息需要在 Exchange 阶段被恢复。
+// AuthCodeSession 授权码会话 (临时数据), 这些信息需要在 Exchange 阶段被恢复。
+// 存活时间极短 (通常 < 10分钟)，读写极高
 type AuthCodeSession struct {
-	Code      string
-	ClientID  BinaryUUID
-	UserID    BinaryUUID
-	AuthTime  time.Time
-	ExpiresAt time.Time
+	// Code: 授权码本身作为主键，必须是唯一的
+	Code string `db:"code"`
 
-	// (可选) 认证上下文引用和方法
-	ACR string   // Authentication Context Class Reference
-	AMR []string // Authentication Methods References
+	// 关联索引：Token Exchange 时需验证 ClientID，且包含 UserID
+	ClientID BinaryUUID `db:"client_id"`
+	UserID   BinaryUUID `db:"user_id"`
 
-	// 原始请求参数，用于二次校验
-	RedirectURI string
-	Scope       string
-	Nonce       string
+	AuthTime time.Time
+	// ExpiresAt: 必须加索引，用于定期清理过期数据 (GC)
+	ExpiresAt time.Time `db:"expires_at"`
 
-	// PKCE (RFC 7636) 必须字段
-	CodeChallenge       string
-	CodeChallengeMethod string
+	// ACR/AMR: 认证上下文 (可选)
+	ACR string   `db:"acr"`
+	AMR []string `db:"amr"`
 
-	// DPoP (RFC 9449): JWK Thumbprint 绑定
-	// 如果授权请求包含 DPoP Proof，将 jkt 绑定到 Auth Code
-	// 在 Token Exchange 时验证，防止 Code Injection 攻击
-	DPoPJKT string
+	// 原始请求参数校验
+	RedirectURI string `db:"redirect_uri"`
+	Scope       string `db:"scope"`
+	Nonce       string `db:"nonce"`
+
+	// PKCE (RFC 7636): 必须字段
+	CodeChallenge       string `db:"code_challenge"`
+	CodeChallengeMethod string `db:"code_challenge_method"`
+
+	// DPoP JKT (RFC 9449): 绑定指纹，防止 Code 窃取
+	DPoPJKT string `db:"d_pop_jkt"`
 }
 
-type AuthCodeStorage interface {
-	// SaveAuthCode 存储生成的授权码及其上下文。
-	SaveAuthCode(ctx context.Context, session *AuthCodeSession) error
+func (AuthCodeSession) TableName() string { return "oidc_auth_codes" }
 
-	// LoadAndConsumeAuthCode 查找并标记为已使用（防止重放）。
+type AuthCodeStorage interface {
+	// AuthCodeSave 存储生成的授权码及其上下文。
+	AuthCodeSave(ctx context.Context, session *AuthCodeSession) error
+
+	// AuthCodeConsume 查找并标记为已使用（防止重放）。
 	// 这是一个原子操作：读取的同时必须确保下次读取失败或标记为已消耗。
 	// 如果未找到或已过期/已消耗，应返回 ErrCodeNotFound。
-	LoadAndConsumeAuthCode(ctx context.Context, code string) (*AuthCodeSession, error)
+	AuthCodeConsume(ctx context.Context, code string) (*AuthCodeSession, error)
 }
 
 // ---------------------------------------------------------------------------
 // Device Flow Interfaces (RFC 8628)
 // ---------------------------------------------------------------------------
 
+// DeviceCodeSession 设备流会话 (RFC 8628)
 type DeviceCodeSession struct {
-	DeviceCode      string
-	UserCode        string
-	ClientID        BinaryUUID
-	Scope           string
-	ExpiresAt       time.Time
-	LastPolled      time.Time
-	Status          string // "pending", "allowed", "denied"
-	UserID          BinaryUUID
+	// DeviceCode: 设备换取 Token 的凭证，主键
+	DeviceCode string `db:"device_code"`
+
+	// UserCode: 用户在浏览器输入的短码，必须唯一且有索引
+	UserCode string `db:"user_code"`
+
+	ClientID BinaryUUID `db:"client_id"`
+	UserID   BinaryUUID `db:"user_id"` // 初始为空，用户授权后填充
+
+	Scope      string    `db:"scope"`
+	ExpiresAt  time.Time `db:"expires_at"` // 用于清理
+	LastPolled time.Time // 用于频率限制 (Rate Limiting)检查
+
+	// Status: pending, allowed, denied
+	Status string `db:"status"`
+
 	AuthTime        time.Time
-	AuthorizedScope string
+	AuthorizedScope string `db:"authorized_scope"` // 用户实际同意的 Scope
 }
 
+func (DeviceCodeSession) TableName() string { return "oidc_device_codes" }
+
 type DeviceCodeStorage interface {
-	// SaveDeviceCode 存储设备码和用户码
-	SaveDeviceCode(ctx context.Context, session *DeviceCodeSession) error
+	// DeviceCodeSave 存储设备码和用户码
+	DeviceCodeSave(ctx context.Context, session *DeviceCodeSession) error
 
-	// GetDeviceCodeSession 根据设备码获取会话
-	GetDeviceCodeSession(ctx context.Context, deviceCode string) (*DeviceCodeSession, error)
+	// DeviceCodeGet 根据设备码获取会话
+	DeviceCodeGet(ctx context.Context, deviceCode string) (*DeviceCodeSession, error)
 
-	// GetDeviceCodeSessionByUserCode 根据用户码获取会话 (用于用户授权页面)
-	GetDeviceCodeSessionByUserCode(ctx context.Context, userCode string) (*DeviceCodeSession, error)
+	// DeviceCodeGetByUserCode 根据用户码获取会话 (用于用户授权页面)
+	DeviceCodeGetByUserCode(ctx context.Context, userCode string) (*DeviceCodeSession, error)
 
-	// UpdateDeviceCodeSession 更新会话状态 (例如用户同意后)
-	UpdateDeviceCodeSession(ctx context.Context, deviceCode string, session *DeviceCodeSession) error
+	// DeviceCodeUpdate 更新会话状态 (例如用户同意后)
+	DeviceCodeUpdate(ctx context.Context, deviceCode string, session *DeviceCodeSession) error
 
-	// RemoveDeviceCodeSession 删除设备码会话及其关联索引
-	RemoveDeviceCodeSession(ctx context.Context, deviceCode string) error
+	// DeviceCodeDelete 删除设备码会话及其关联索引
+	DeviceCodeDelete(ctx context.Context, deviceCode string) error
 }
 
 // ---------------------------------------------------------------------------
@@ -210,77 +305,91 @@ type DeviceCodeStorage interface {
 
 // RefreshTokenSession 包含刷新令牌关联的上下文信息。
 type RefreshTokenSession struct {
-	ID        Hash256
-	ClientID  BinaryUUID
-	UserID    BinaryUUID
-	Scope     string
-	AuthTime  time.Time
-	ExpiresAt time.Time
+	// ID 默认为主键，无需标签
+	// GORM 默认将 Hash256 映射为对应类型（需实现 Scanner/Valuer）
+	ID Hash256
 
-	// 用于 OIDC 刷新的上下文
-	Nonce string
-	ACR   string
-	AMR   []string
+	// 默认映射为 client_id，但在 db 标签中指定 index
+	ClientID BinaryUUID `db:"client_id"`
+
+	// 默认映射为 user_id，指定 index
+	UserID BinaryUUID `db:"user_id"`
+
+	// 指定数据库类型为 text
+	Scope string `db:"scope"`
+
+	// 默认映射 auth_time
+	AuthTime time.Time
+
+	// 默认映射 expires_at，指定 index
+	ExpiresAt time.Time `db:"expires_at"`
+
+	// 上下文信息
+	Nonce string      // 默认 varchar
+	ACR   string      // 默认 varchar
+	AMR   StringSlice `db:"amr"`
 }
+
+func (RefreshTokenSession) TableName() string { return "oidc_refresh_tokens" }
 
 // TokenStorage 负责持久化刷新令牌 (Long-lived tokens)。
 type TokenStorage interface {
-	// CreateRefreshToken 存储新的刷新令牌。
-	CreateRefreshToken(ctx context.Context, session *RefreshTokenSession) error
+	// RefreshTokenCreate 存储新的刷新令牌。
+	RefreshTokenCreate(ctx context.Context, session *RefreshTokenSession) error
 
-	// GetRefreshToken 根据令牌 ID (或哈希) 查找。
+	// RefreshTokenGet 根据令牌 ID (或哈希) 查找。
 	// 如果未找到或过期，应返回 ErrTokenNotFound。
-	GetRefreshToken(ctx context.Context, tokenID Hash256) (*RefreshTokenSession, error)
+	RefreshTokenGet(ctx context.Context, tokenID Hash256) (*RefreshTokenSession, error)
 
-	// RotateRefreshToken 令牌轮换：删除旧的，保存新的。
+	// RefreshTokenRotate 令牌轮换：删除旧的，保存新的。
 	// 强烈建议在事务中执行：如果保存新令牌失败，旧令牌也不应被删除（或者整个操作回滚）。
-	RotateRefreshToken(ctx context.Context, oldTokenID Hash256, newSession *RefreshTokenSession) error
+	RefreshTokenRotate(ctx context.Context, oldTokenID Hash256, newSession *RefreshTokenSession) error
 
-	// RevokeRefreshToken 撤销指定的刷新令牌。
-	RevokeRefreshToken(ctx context.Context, tokenID Hash256) error
+	// RefreshTokenRevoke 撤销指定的刷新令牌。
+	RefreshTokenRevoke(ctx context.Context, tokenID Hash256) error
 
-	// RevokeTokensForUser 撤销指定用户的所有令牌 (例如用户登出或修改密码时)。
-	RevokeTokensForUser(ctx context.Context, userID BinaryUUID) ([]Hash256, error)
+	// RefreshTokenRevokeUser 撤销指定用户的所有令牌 (例如用户登出或修改密码时)。
+	RefreshTokenRevokeUser(ctx context.Context, userID BinaryUUID) ([]Hash256, error)
 }
 
 // TokenCache 定义了 Refresh Token 的缓存接口
 type TokenCache interface {
-	// GetRefreshToken 从缓存获取
-	GetRefreshToken(ctx context.Context, tokenID Hash256) (*RefreshTokenSession, error)
+	// RefreshTokenGet 从缓存获取
+	RefreshTokenGet(ctx context.Context, tokenID Hash256) (*RefreshTokenSession, error)
 
-	// SaveRefreshToken 存入缓存
-	SaveRefreshToken(ctx context.Context, session *RefreshTokenSession, ttl time.Duration) error
+	// RefreshTokenCache 存入缓存
+	RefreshTokenCache(ctx context.Context, session *RefreshTokenSession, ttl time.Duration) error
 
-	// InvalidateRefreshToken 从缓存移除
-	InvalidateRefreshToken(ctx context.Context, tokenID Hash256) error
+	// RefreshTokenInvalidate 从缓存移除
+	RefreshTokenInvalidate(ctx context.Context, tokenID Hash256) error
 
-	// InvalidateRefreshTokens 批量从缓存移除
-	InvalidateRefreshTokens(ctx context.Context, tokenIDs []Hash256) error
+	// RefreshTokensInvalidate 批量从缓存移除
+	RefreshTokensInvalidate(ctx context.Context, tokenIDs []Hash256) error
 }
 
 // TokenRotationStorage 负责快速检测刷新令牌的轮换状态。
 type TokenRotationStorage interface {
-	// MarkRefreshTokenAsRotating 标记旧 Token 进入宽限期
+	// RefreshTokenMarkRotating 标记旧 Token 进入宽限期
 	// 在宽限期内，旧 Token 仍可刷新（但仅一次）
 	// gracePeriod: 宽限期时长，建议 30 秒
 	//
 	// RFC 6749 说明：在网络不稳定环境中，客户端可能并发发送多个刷新请求
 	// 宽限期允许客户端在短时间内使用旧 Token 重试，避免合法请求失败
-	MarkRefreshTokenAsRotating(ctx context.Context, tokenID Hash256, gracePeriod time.Duration) error
+	RefreshTokenMarkRotating(ctx context.Context, tokenID Hash256, gracePeriod time.Duration) error
 
-	// IsInGracePeriod 检查 Token 是否在宽限期内
+	// RefreshTokenInGracePeriod 检查 Token 是否在宽限期内
 	// 返回 true 表示可以允许一次重试刷新
-	IsInGracePeriod(ctx context.Context, tokenID Hash256) (bool, error)
+	RefreshTokenInGracePeriod(ctx context.Context, tokenID Hash256) (bool, error)
 }
 
-// RevocationStorage 用于管理 Access Token 的黑名单 (Revocation List)。
+// RevocationStorage 用于管理 Access Token 的黑名单 (Revocation JWKList)。
 // Access Token 通常是无状态 JWT，一旦签发无法修改，撤销只能通过黑名单 (JTI) 实现。
 type RevocationStorage interface {
-	// Revoke 将 JTI (JWT ID) 加入黑名单，直到 expiration 时间。
-	Revoke(ctx context.Context, jti string, expiration time.Time) error
+	// AccessTokenRevoke 将 JTI (JWT ID) 加入黑名单，直到 expiration 时间。
+	AccessTokenRevoke(ctx context.Context, jti string, expiration time.Time) error
 
-	// IsRevoked 检查 JTI 是否在黑名单中。
-	IsRevoked(ctx context.Context, jti string) (bool, error)
+	// AccessTokenIsRevoked 检查 JTI 是否在黑名单中。
+	AccessTokenIsRevoked(ctx context.Context, jti string) (bool, error)
 }
 
 // ---------------------------------------------------------------------------
@@ -290,24 +399,35 @@ type RevocationStorage interface {
 // KeyStorage 定义了私钥的持久化存储接口
 // 必须支持分布式环境下的并发访问
 type KeyStorage interface {
-	// Save 存储一个 JWK (包含私钥)
+	// JWKSave 存储一个 JWK (包含私钥)
 	// 如果 key 已存在，应该覆盖或返回错误（取决于实现，通常是覆盖）
-	Save(ctx context.Context, key jwk.Key) error
+	JWKSave(ctx context.Context, key jwk.Key) error
 
-	// Get 获取指定 kid 的 JWK
-	Get(ctx context.Context, kid string) (jwk.Key, error)
+	// JWKGet 获取指定 kid 的 JWK
+	JWKGet(ctx context.Context, kid string) (jwk.Key, error)
 
-	// List 获取所有存储的 JWK
-	List(ctx context.Context) ([]jwk.Key, error)
+	// JWKList 获取所有存储的 JWK
+	JWKList(ctx context.Context) ([]jwk.Key, error)
 
-	// Delete 删除指定 kid 的 JWK
-	Delete(ctx context.Context, kid string) error
+	// JWKDelete 删除指定 kid 的 JWK
+	JWKDelete(ctx context.Context, kid string) error
 
-	// SaveSigningKeyID 存储当前签名密钥 ID
-	SaveSigningKeyID(ctx context.Context, kid string) error
+	// JWKMarkSigning 存储当前签名密钥 ID
+	JWKMarkSigning(ctx context.Context, kid string) error
 
-	// GetSigningKeyID 获取当前签名密钥 ID
-	GetSigningKeyID(ctx context.Context) (string, error)
+	// JWKGetSigning 获取当前签名密钥 ID
+	JWKGetSigning(ctx context.Context) (string, error)
+}
+
+// JWK 存储轮转的加密密钥
+type JWK struct {
+	// KID: Key ID，主键
+	KID string `db:"kid"`
+
+	// JWK: 包含私钥的大段 JSON 文本，使用 text 类型
+	JWK SecretString `db:"jwk"`
+
+	CreatedAt time.Time `db:"created_at"`
 }
 
 // DistributedLock 定义了分布式锁接口
@@ -329,10 +449,10 @@ type DistributedLock interface {
 // UserInfoGetter 用于从业务系统获取用户信息，以填充 ID Token 或响应 UserInfo 端点。
 type UserInfoGetter interface {
 	// 测试中需要添加可查询的用户信息
-	CreateUserInfo(ctx context.Context, userInfo *UserInfo) error
-	// GetUserInfo 根据 UserID 和请求的 Scopes 返回用户信息。
+	UserCreateInfo(ctx context.Context, userInfo *UserInfo) error
+	// UserGetInfoByID 根据 UserID 和请求的 Scopes 返回用户信息。
 	// scope 参数允许实现层根据权限过滤返回字段 (例如：没有 'email' scope 就不查邮箱)。
-	GetUserInfo(ctx context.Context, userID BinaryUUID, scopes []string) (*UserInfo, error)
+	UserGetInfoByID(ctx context.Context, userID BinaryUUID, scopes []string) (*UserInfo, error)
 }
 
 // ---------------------------------------------------------------------------
@@ -342,10 +462,10 @@ type UserInfoGetter interface {
 // UserAuthenticator 定义用户认证接口。
 // 此接口仅用于特殊场景（如负载测试的 Password Grant 流程），不应在生产环境的标准 OIDC 流程中使用。
 type UserAuthenticator interface {
-	// GetUser 根据用户名和密码进行认证。
+	// AuthenticateByPassword 根据用户名和密码进行认证。
 	// 成功时返回用户 ID，失败时应返回 ErrUserNotFound。
 	// 注意：此方法应实现速率限制和防暴力破解机制。
-	GetUser(ctx context.Context, username, password string) (BinaryUUID, error)
+	AuthenticateByPassword(ctx context.Context, username, password string) (BinaryUUID, error)
 }
 
 // ---------------------------------------------------------------------------

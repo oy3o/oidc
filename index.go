@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 
 	"github.com/bytedance/sonic"
-
 	"github.com/google/uuid"
 )
 
@@ -20,7 +19,8 @@ func (h Hash256) Value() (driver.Value, error) {
 	if len(h) != 32 {
 		return nil, ErrHash256InvalidLength
 	}
-	return []byte(h), nil
+	// 为了兼容 Postgres Varchar(64)
+	return h.String(), nil
 }
 
 // Scan 实现 sql.Scanner 接口 (从数据库读取)
@@ -55,12 +55,6 @@ func (h *Hash256) Scan(value interface{}) error {
 		return ErrHash256UnsupportedType
 	}
 	return nil
-}
-
-// GormDataType 实现 GORM 自定义数据类型接口
-// 返回 "bytes" 让 GORM 根据驱动自动映射 (Postgres->bytea, MySQL->blob/binary)
-func (Hash256) GormDataType() string {
-	return "bytes"
 }
 
 // ---------------------------------------------------------
@@ -146,12 +140,6 @@ func (b *BinaryUUID) Scan(value interface{}) error {
 	return nil
 }
 
-// GormDataType 实现 GORM 自定义数据类型接口
-// 返回 "bytes" 让 GORM 根据驱动自动映射 (Postgres->bytea, MySQL->blob/binary)
-func (BinaryUUID) GormDataType() string {
-	return "bytes"
-}
-
 // ---------------------------------------------------------
 // 2. JSON 接口：保持前端友好 (String)
 // ---------------------------------------------------------
@@ -178,4 +166,13 @@ func (b *BinaryUUID) UnmarshalJSON(data []byte) error {
 // String 实现 fmt.Stringer
 func (b BinaryUUID) String() string {
 	return uuid.UUID(b).String()
+}
+
+// NewBinaryUUID 创建一个 uuid v7
+func NewBinaryUUID() (BinaryUUID, error) {
+	id, err := uuid.NewV7()
+	if err != nil {
+		return BinaryUUID(uuid.Nil), err
+	}
+	return BinaryUUID(id), nil
 }

@@ -346,8 +346,8 @@ func (c *Client) UserInfo(ctx context.Context, accessToken string) (*UserInfo, e
 	return &userInfo, nil
 }
 
-// Revoke 撤销 Token (Access Token 或 Refresh Token)
-func (c *Client) Revoke(ctx context.Context, token string, hint string) error {
+// AccessTokenRevoke 撤销 Token (Access Token 或 Refresh Token)
+func (c *Client) AccessTokenRevoke(ctx context.Context, token string, hint string) error {
 	endpoint := c.discovery.RevocationEndpoint
 	if endpoint == "" {
 		return fmt.Errorf("oidc: server does not support revocation")

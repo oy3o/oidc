@@ -1,4 +1,4 @@
-package redis
+package cache
 
 import (
 	"context"
@@ -11,7 +11,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/lestrrat-go/jwx/v2/jwk"
 	"github.com/oy3o/oidc"
-	"github.com/oy3o/oidc/gorm"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -20,7 +19,7 @@ import (
 type clientFactory struct{}
 
 func (f *clientFactory) New() oidc.RegisteredClient {
-	return &gorm.ClientModel{}
+	return &oidc.ClientMetadata{}
 }
 
 // setupRedis 初始化 miniredis 和 Storage
@@ -33,7 +32,7 @@ func setupRedis(t *testing.T) (*miniredis.Miniredis, *RedisStorage) {
 		Addr: s.Addr(),
 	})
 
-	return s, NewRedisStorage(rdb, &clientFactory{})
+	return s, NewRedis(rdb, &clientFactory{})
 }
 
 // ---------------------------------------------------------------------------
@@ -52,17 +51,17 @@ func TestRedis_AuthCode(t *testing.T) {
 		Scope:     "openid",
 	}
 
-	// 1. Save
-	err := storage.SaveAuthCode(ctx, session)
+	// 1. JWKSave
+	err := storage.AuthCodeSave(ctx, session)
 	require.NoError(t, err)
 
 	// 2. Load and Consume (Success)
-	loaded, err := storage.LoadAndConsumeAuthCode(ctx, code)
+	loaded, err := storage.AuthCodeConsume(ctx, code)
 	require.NoError(t, err)
 	assert.Equal(t, session.ClientID, loaded.ClientID)
 
 	// 3. Load and Consume again (Should fail - Replay attack prevention)
-	_, err = storage.LoadAndConsumeAuthCode(ctx, code)
+	_, err = storage.AuthCodeConsume(ctx, code)
 	assert.ErrorIs(t, err, oidc.ErrCodeNotFound)
 }
 
@@ -76,12 +75,12 @@ func TestRedis_AuthCode_Expired(t *testing.T) {
 		ExpiresAt: time.Now().Add(1 * time.Second),
 	}
 
-	storage.SaveAuthCode(ctx, session)
+	storage.AuthCodeSave(ctx, session)
 
 	// 快进时间 (miniredis 特性)
 	s.FastForward(2 * time.Second)
 
-	_, err := storage.LoadAndConsumeAuthCode(ctx, code)
+	_, err := storage.AuthCodeConsume(ctx, code)
 	assert.ErrorIs(t, err, oidc.ErrCodeNotFound)
 }
 
@@ -105,26 +104,26 @@ func TestRedis_DeviceCode(t *testing.T) {
 		Status:     oidc.DeviceCodeStatusPending,
 	}
 
-	// 1. Save
-	err := storage.SaveDeviceCode(ctx, session)
+	// 1. JWKSave
+	err := storage.DeviceCodeSave(ctx, session)
 	require.NoError(t, err)
 
-	// 2. Get by Device Code
-	got, err := storage.GetDeviceCodeSession(ctx, deviceCode)
+	// 2. JWKGet by Device Code
+	got, err := storage.DeviceCodeGet(ctx, deviceCode)
 	require.NoError(t, err)
 	assert.Equal(t, clientID, got.ClientID)
 
-	// 3. Get by User Code
-	gotByUser, err := storage.GetDeviceCodeSessionByUserCode(ctx, userCode)
+	// 3. JWKGet by User Code
+	gotByUser, err := storage.DeviceCodeGetByUserCode(ctx, userCode)
 	require.NoError(t, err)
 	assert.Equal(t, deviceCode, gotByUser.DeviceCode)
 
 	// 4. Update
 	session.Status = oidc.DeviceCodeStatusAllowed
-	err = storage.UpdateDeviceCodeSession(ctx, deviceCode, session)
+	err = storage.DeviceCodeUpdate(ctx, deviceCode, session)
 	require.NoError(t, err)
 
-	updated, err := storage.GetDeviceCodeSession(ctx, deviceCode)
+	updated, err := storage.DeviceCodeGet(ctx, deviceCode)
 	require.NoError(t, err)
 	assert.Equal(t, oidc.DeviceCodeStatusAllowed, updated.Status)
 }
@@ -143,17 +142,17 @@ func TestRedis_PAR(t *testing.T) {
 		State:    "state-xyz",
 	}
 
-	// 1. Save
-	err := storage.SavePARSession(ctx, uri, req, time.Minute)
+	// 1. JWKSave
+	err := storage.PARSessionSave(ctx, uri, req, time.Minute)
 	require.NoError(t, err)
 
-	// 2. Get and Delete (Success)
-	got, err := storage.GetAndDeletePARSession(ctx, uri)
+	// 2. JWKGet and JWKDelete (Success)
+	got, err := storage.PARSessionConsume(ctx, uri)
 	require.NoError(t, err)
 	assert.Equal(t, "client-1", got.ClientID)
 
-	// 3. Get again (Should fail - One time use)
-	_, err = storage.GetAndDeletePARSession(ctx, uri)
+	// 3. JWKGet again (Should fail - One time use)
+	_, err = storage.PARSessionConsume(ctx, uri)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "PAR session not found")
 }
@@ -188,15 +187,15 @@ func TestRedis_Revocation(t *testing.T) {
 	jti := "access-token-id"
 
 	// Initial
-	revoked, _ := storage.IsRevoked(ctx, jti)
+	revoked, _ := storage.AccessTokenIsRevoked(ctx, jti)
 	assert.False(t, revoked)
 
-	// Revoke
-	err := storage.Revoke(ctx, jti, time.Now().Add(time.Hour))
+	// AccessTokenRevoke
+	err := storage.AccessTokenRevoke(ctx, jti, time.Now().Add(time.Hour))
 	require.NoError(t, err)
 
 	// Check
-	revoked, _ = storage.IsRevoked(ctx, jti)
+	revoked, _ = storage.AccessTokenIsRevoked(ctx, jti)
 	assert.True(t, revoked)
 }
 
@@ -206,20 +205,20 @@ func TestRedis_TokenRotation_GracePeriod(t *testing.T) {
 	tokenID := oidc.RefreshToken("raw").HashForDB()
 
 	// Initial
-	inGrace, _ := storage.IsInGracePeriod(ctx, tokenID)
+	inGrace, _ := storage.RefreshTokenInGracePeriod(ctx, tokenID)
 	assert.False(t, inGrace)
 
 	// Mark
-	err := storage.MarkRefreshTokenAsRotating(ctx, tokenID, 10*time.Second)
+	err := storage.RefreshTokenMarkRotating(ctx, tokenID, 10*time.Second)
 	require.NoError(t, err)
 
 	// Check
-	inGrace, _ = storage.IsInGracePeriod(ctx, tokenID)
+	inGrace, _ = storage.RefreshTokenInGracePeriod(ctx, tokenID)
 	assert.True(t, inGrace)
 
 	// Expire
 	s.FastForward(11 * time.Second)
-	inGrace, _ = storage.IsInGracePeriod(ctx, tokenID)
+	inGrace, _ = storage.RefreshTokenInGracePeriod(ctx, tokenID)
 	assert.False(t, inGrace)
 }
 
@@ -265,35 +264,35 @@ func TestRedis_KeyStorage(t *testing.T) {
 	key, _ := jwk.FromRaw(rawKey)
 	key.Set(jwk.KeyIDKey, "key-1")
 
-	// 1. Save
-	err := storage.Save(ctx, key)
+	// 1. JWKSave
+	err := storage.JWKSave(ctx, key)
 	require.NoError(t, err)
 
-	// 2. Get
-	got, err := storage.Get(ctx, "key-1")
+	// 2. JWKGet
+	got, err := storage.JWKGet(ctx, "key-1")
 	require.NoError(t, err)
 	assert.Equal(t, "key-1", got.KeyID())
 
-	// 3. List
+	// 3. JWKList
 	// Add another key
 	key2, _ := jwk.FromRaw(rawKey)
 	key2.Set(jwk.KeyIDKey, "key-2")
-	storage.Save(ctx, key2)
+	storage.JWKSave(ctx, key2)
 
-	list, err := storage.List(ctx)
+	list, err := storage.JWKList(ctx)
 	require.NoError(t, err)
 	assert.Len(t, list, 2)
 
 	// 4. Signing Key ID
-	err = storage.SaveSigningKeyID(ctx, "key-1")
+	err = storage.JWKMarkSigning(ctx, "key-1")
 	require.NoError(t, err)
-	kid, err := storage.GetSigningKeyID(ctx)
+	kid, err := storage.JWKGetSigning(ctx)
 	assert.Equal(t, "key-1", kid)
 
-	// 5. Delete
-	err = storage.Delete(ctx, "key-1")
+	// 5. JWKDelete
+	err = storage.JWKDelete(ctx, "key-1")
 	require.NoError(t, err)
-	_, err = storage.Get(ctx, "key-1")
+	_, err = storage.JWKGet(ctx, "key-1")
 	assert.ErrorIs(t, err, oidc.ErrKeyNotFound)
 }
 
@@ -313,19 +312,19 @@ func TestRedis_TokenCache(t *testing.T) {
 		Scope:    "openid",
 	}
 
-	// Save
-	err := storage.SaveRefreshToken(ctx, session, time.Minute)
+	// JWKSave
+	err := storage.RefreshTokenCache(ctx, session, time.Minute)
 	require.NoError(t, err)
 
-	// Get
-	got, err := storage.GetRefreshToken(ctx, tokenID)
+	// JWKGet
+	got, err := storage.RefreshTokenGet(ctx, tokenID)
 	require.NoError(t, err)
 	assert.Equal(t, session.UserID, got.UserID)
 
 	// Invalidate
-	err = storage.InvalidateRefreshToken(ctx, tokenID)
+	err = storage.RefreshTokenInvalidate(ctx, tokenID)
 	require.NoError(t, err)
 
-	_, err = storage.GetRefreshToken(ctx, tokenID)
+	_, err = storage.RefreshTokenGet(ctx, tokenID)
 	assert.ErrorIs(t, err, oidc.ErrTokenNotFound)
 }

@@ -47,20 +47,18 @@ import (
     
     "github.com/redis/go-redis/v9"
     "github.com/oy3o/oidc"
-    "github.com/oy3o/oidc/gorm"  // SQL 实现
-    "github.com/oy3o/oidc/redis" // Redis 实现
+    "github.com/oy3o/oidc/persist"
+    "github.com/oy3o/oidc/cache"
 )
 
 func main() {
     ctx := context.Background()
 
     // 1. 初始化持久层 (SQL) -> 负责资产数据 (Client, User, RefreshToken)
-    // db 为 *gorm.DB 实例
-    persistStore := gorm.NewGormStorage(db, &MyHasher{})
+    persistStore := persist.NewPgx(db, &MyHasher{})
     
     // 2. 初始化缓存层 (Redis) -> 负责高频状态 (AuthCode, Lock, GracePeriod)
-    // rdb 为 *redis.Client 实例
-    cacheStore := redis.NewRedisStorage(rdb)
+    cacheStore := cache.NewRedis(redisClient)
 
     // 3. [关键] 组合分层存储
     // TieredStorage 会自动将请求路由到正确的存储层

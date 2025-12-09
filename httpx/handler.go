@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/bytedance/sonic"
+	"github.com/rs/zerolog/log"
 
 	"github.com/oy3o/httpx"
 	"github.com/oy3o/oidc"
@@ -46,7 +47,10 @@ func TokenHandler(s *oidc.Server) http.HandlerFunc {
 		}
 
 		w.WriteHeader(http.StatusOK)
-		sonic.ConfigDefault.NewEncoder(w).Encode(resp)
+		if err := sonic.ConfigDefault.NewEncoder(w).Encode(resp); err != nil {
+			log.Error().Err(err).Msg("failed to encode response")
+			return
+		}
 	}
 }
 
@@ -59,7 +63,10 @@ func DiscoveryHandler(s *oidc.Server) http.HandlerFunc {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Content-Type", "application/json;charset=UTF-8")
 		w.Header().Set("Cache-Control", "public, max-age=3600")
-		sonic.ConfigDefault.NewEncoder(w).Encode(s.Discovery())
+		if err := sonic.ConfigDefault.NewEncoder(w).Encode(s.Discovery()); err != nil {
+			log.Error().Err(err).Msg("failed to encode response")
+			return
+		}
 	}
 }
 
@@ -74,10 +81,13 @@ func JWKSHandler(s *oidc.Server) http.HandlerFunc {
 
 		jwks, err := s.KeyManager().ExportJWKS(r.Context())
 		if err != nil {
-			http.Error(w, "internal server error", http.StatusInternalServerError)
+			Error(w, oidc.ServerError("failed to export JWKS"))
 			return
 		}
-		sonic.ConfigDefault.NewEncoder(w).Encode(jwks)
+		if err := sonic.ConfigDefault.NewEncoder(w).Encode(jwks); err != nil {
+			log.Error().Err(err).Msg("failed to encode response")
+			return
+		}
 	}
 }
 
@@ -99,7 +109,10 @@ func UserInfoHandler(s *oidc.Server) http.HandlerFunc {
 		}
 
 		w.WriteHeader(http.StatusOK)
-		sonic.ConfigDefault.NewEncoder(w).Encode(info)
+		if err := sonic.ConfigDefault.NewEncoder(w).Encode(info); err != nil {
+			log.Error().Err(err).Msg("failed to encode response")
+			return
+		}
 	}
 }
 
@@ -156,7 +169,10 @@ func IntrospectionHandler(s *oidc.Server) http.HandlerFunc {
 		}
 
 		w.WriteHeader(http.StatusOK)
-		sonic.ConfigDefault.NewEncoder(w).Encode(resp)
+		if err := sonic.ConfigDefault.NewEncoder(w).Encode(resp); err != nil {
+			log.Error().Err(err).Msg("failed to encode response")
+			return
+		}
 	}
 }
 
@@ -183,7 +199,10 @@ func PARHandler(s *oidc.Server) http.HandlerFunc {
 		}
 
 		w.WriteHeader(http.StatusCreated)
-		sonic.ConfigDefault.NewEncoder(w).Encode(resp)
+		if err := sonic.ConfigDefault.NewEncoder(w).Encode(resp); err != nil {
+			log.Error().Err(err).Msg("failed to encode response")
+			return
+		}
 	}
 }
 
@@ -214,7 +233,10 @@ func DeviceAuthorizationHandler(s *oidc.Server) http.HandlerFunc {
 		}
 
 		w.WriteHeader(http.StatusOK)
-		sonic.ConfigDefault.NewEncoder(w).Encode(resp)
+		if err := sonic.ConfigDefault.NewEncoder(w).Encode(resp); err != nil {
+			log.Error().Err(err).Msg("failed to encode response")
+			return
+		}
 	}
 }
 
@@ -228,23 +250,32 @@ func Error(w http.ResponseWriter, err error) {
 	var oidcErr *oidc.Error
 	if errors.As(err, &oidcErr) {
 		w.WriteHeader(oidcErr.StatusCode)
-		sonic.ConfigDefault.NewEncoder(w).Encode(oidcErr)
+		if err := sonic.ConfigDefault.NewEncoder(w).Encode(oidcErr); err != nil {
+			log.Error().Err(err).Msg("failed to encode response")
+			return
+		}
 		return
 	}
 
 	// 2. 尝试映射 Sentinel Errors
 	if mappedErr := mapSentinelToError(err); mappedErr != nil {
 		w.WriteHeader(mappedErr.StatusCode)
-		sonic.ConfigDefault.NewEncoder(w).Encode(mappedErr)
+		if err := sonic.ConfigDefault.NewEncoder(w).Encode(mappedErr); err != nil {
+			log.Error().Err(err).Msg("failed to encode response")
+			return
+		}
 		return
 	}
 
 	// 3. 默认 500
 	w.WriteHeader(http.StatusInternalServerError)
-	sonic.ConfigDefault.NewEncoder(w).Encode(&oidc.Error{
+	if err := sonic.ConfigDefault.NewEncoder(w).Encode(&oidc.Error{
 		Code:        "server_error",
 		Description: err.Error(),
-	})
+	}); err != nil {
+		log.Error().Err(err).Msg("failed to encode response")
+		return
+	}
 }
 
 // mapSentinelToError 将预定义的 error 变量转换为 *oidc.Error 结构

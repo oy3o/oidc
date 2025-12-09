@@ -17,7 +17,8 @@ import (
 func NewMockHasher(t interface {
 	mock.TestingT
 	Cleanup(func())
-}) *MockHasher {
+},
+) *MockHasher {
 	mock := &MockHasher{}
 	mock.Mock.Test(t)
 

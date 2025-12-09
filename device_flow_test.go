@@ -40,16 +40,16 @@ func setupDeviceFlowTest(t *testing.T) (*oidc.Server, oidc.Storage, oidc.Registe
 
 	// 创建支持设备流的客户端
 	clientID := oidc.BinaryUUID(uuid.New())
-	clientMeta := oidc.ClientMetadata{
+	clientMeta := &oidc.ClientMetadata{
 		ID:                      clientID,
 		GrantTypes:              []string{"urn:ietf:params:oauth:grant-type:device_code"},
 		Scope:                   "openid profile",
 		Name:                    "Device Client",
-		IsConfidential:          false, // 公共客户端常见于设备流
+		IsConfidentialClient:    false, // 公共客户端常见于设备流
 		TokenEndpointAuthMethod: "none",
 	}
 
-	client, err := storage.CreateClient(context.Background(), clientMeta)
+	client, err := storage.ClientCreate(context.Background(), clientMeta)
 	require.NoError(t, err)
 
 	return server, storage, client
@@ -76,14 +76,14 @@ func TestDeviceAuthorization_Success(t *testing.T) {
 	assert.Equal(t, 5, resp.Interval)
 
 	// 3. 验证存储
-	session, err := storage.GetDeviceCodeSession(ctx, resp.DeviceCode)
+	session, err := storage.DeviceCodeGet(ctx, resp.DeviceCode)
 	require.NoError(t, err)
 	assert.Equal(t, client.GetID(), session.ClientID)
 	assert.Equal(t, oidc.DeviceCodeStatusPending, session.Status)
 	assert.Equal(t, resp.UserCode, session.UserCode)
 
 	// 验证 UserCode 索引
-	sessionByUser, err := storage.GetDeviceCodeSessionByUserCode(ctx, resp.UserCode)
+	sessionByUser, err := storage.DeviceCodeGetByUserCode(ctx, resp.UserCode)
 	require.NoError(t, err)
 	assert.Equal(t, resp.DeviceCode, sessionByUser.DeviceCode)
 }
@@ -115,7 +115,7 @@ func TestDeviceTokenExchange_Pending(t *testing.T) {
 		Status:     oidc.DeviceCodeStatusPending,
 		ExpiresAt:  time.Now().Add(10 * time.Minute),
 	}
-	err := storage.SaveDeviceCode(ctx, session)
+	err := storage.DeviceCodeSave(ctx, session)
 	require.NoError(t, err)
 
 	// 2. 尝试换取 Token
@@ -146,7 +146,7 @@ func TestDeviceTokenExchange_Success(t *testing.T) {
 		ExpiresAt:       time.Now().Add(10 * time.Minute),
 		UserID:          userID, // 绑定用户
 	}
-	err := storage.SaveDeviceCode(ctx, session)
+	err := storage.DeviceCodeSave(ctx, session)
 	require.NoError(t, err)
 
 	// 2. 换取 Token
@@ -181,7 +181,7 @@ func TestDeviceTokenExchange_Denied(t *testing.T) {
 		Status:     oidc.DeviceCodeStatusDenied,
 		ExpiresAt:  time.Now().Add(10 * time.Minute),
 	}
-	storage.SaveDeviceCode(ctx, session)
+	storage.DeviceCodeSave(ctx, session)
 
 	// 2. 尝试换取 Token
 	req := &oidc.TokenRequest{
@@ -206,7 +206,7 @@ func TestDeviceTokenExchange_Expired(t *testing.T) {
 		Status:     oidc.DeviceCodeStatusPending,
 		ExpiresAt:  time.Now().Add(-1 * time.Minute),
 	}
-	storage.SaveDeviceCode(ctx, session)
+	storage.DeviceCodeSave(ctx, session)
 
 	// 2. 尝试换取 Token
 	req := &oidc.TokenRequest{

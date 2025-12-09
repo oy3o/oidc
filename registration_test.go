@@ -6,7 +6,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/oy3o/oidc"
-	"github.com/oy3o/oidc/gorm"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -52,7 +51,7 @@ func TestRegisterClient_Confidential(t *testing.T) {
 	assert.Equal(t, req.TokenEndpointAuthMethod, resp.TokenEndpointAuthMethod)
 
 	// 3. 验证存储 (Secret 应该是哈希过的)
-	storedClient, err := storage.GetClient(ctx, oidc.BinaryUUID(uuid.MustParse(resp.ClientID)))
+	storedClient, err := storage.ClientFindByID(ctx, oidc.BinaryUUID(uuid.MustParse(resp.ClientID)))
 	require.NoError(t, err)
 
 	// MockStorage 存储的是 RegisteredClient 接口，我们需要断言具体的实现或行为
@@ -62,8 +61,8 @@ func TestRegisterClient_Confidential(t *testing.T) {
 	assert.NoError(t, err, "Stored hashed secret should match returned plain secret")
 
 	// 直接检查 MockStorage 内部数据 (如果需要白盒测试)
-	mockClient := storedClient.(*gorm.ClientModel)
-	assert.Equal(t, "hashed_"+resp.ClientSecret, mockClient.Secret)
+	mockClient := storedClient.(*oidc.ClientMetadata)
+	assert.Equal(t, "hashed_"+resp.ClientSecret, string(mockClient.Secret))
 }
 
 func TestRegisterClient_Public(t *testing.T) {
@@ -86,7 +85,7 @@ func TestRegisterClient_Public(t *testing.T) {
 	assert.Empty(t, resp.ClientSecret, "Public client should not have a secret")
 
 	// 3. 验证存储
-	storedClient, err := storage.GetClient(ctx, oidc.BinaryUUID(uuid.MustParse(resp.ClientID)))
+	storedClient, err := storage.ClientFindByID(ctx, oidc.BinaryUUID(uuid.MustParse(resp.ClientID)))
 	require.NoError(t, err)
 	assert.False(t, storedClient.IsConfidential())
 }
@@ -152,7 +151,7 @@ func TestRegisterClient_ValidationFailures(t *testing.T) {
 	}
 }
 
-func TestUpdateClient_Success(t *testing.T) {
+func TestClientUpdate_Success(t *testing.T) {
 	storage := NewTestStorage(t)
 	hasher := &regTestHasher{}
 	ctx := context.Background()
@@ -176,7 +175,7 @@ func TestUpdateClient_Success(t *testing.T) {
 	}
 
 	// 3. 执行更新
-	updateResp, err := oidc.UpdateClient(ctx, storage, &oidc.ClientUpdateRequest{clientID, updateReq})
+	updateResp, err := oidc.ClientUpdate(ctx, storage, &oidc.ClientUpdateRequest{clientID, updateReq})
 	require.NoError(t, err)
 
 	// 4. 验证响应
@@ -185,12 +184,12 @@ func TestUpdateClient_Success(t *testing.T) {
 	assert.Equal(t, []string{"https://new.com"}, updateResp.RedirectURIs)
 
 	// 5. 验证存储中的 Secret 未改变 (Update 不应重置 Secret)
-	storedClient, _ := storage.GetClient(ctx, oidc.BinaryUUID(uuid.MustParse(clientID)))
+	storedClient, _ := storage.ClientFindByID(ctx, oidc.BinaryUUID(uuid.MustParse(clientID)))
 	err = storedClient.ValidateSecret(ctx, hasher, originalSecret)
 	assert.NoError(t, err, "Secret should persist after update")
 }
 
-func TestUpdateClient_NotFound(t *testing.T) {
+func TestClientUpdate_NotFound(t *testing.T) {
 	storage := NewTestStorage(t)
 	ctx := context.Background()
 	randomID := uuid.New().String()
@@ -200,7 +199,7 @@ func TestUpdateClient_NotFound(t *testing.T) {
 		RedirectURIs: []string{"https://new.com"},
 	}
 
-	_, err := oidc.UpdateClient(ctx, storage, &oidc.ClientUpdateRequest{randomID, req})
+	_, err := oidc.ClientUpdate(ctx, storage, &oidc.ClientUpdateRequest{randomID, req})
 	assert.ErrorIs(t, err, oidc.ErrClientNotFound)
 }
 
@@ -211,14 +210,14 @@ func TestUnregisterClient(t *testing.T) {
 
 	// 1. 注册
 	req := &oidc.ClientRegistrationRequest{
-		ClientName:   "To Delete",
+		ClientName:   "To JWKDelete",
 		RedirectURIs: []string{"https://delete.com"},
 	}
 	resp, _ := oidc.RegisterClient(ctx, storage, hasher, req)
 	clientID := resp.ClientID
 
 	// 2. 验证存在
-	_, err := storage.GetClient(ctx, oidc.BinaryUUID(uuid.MustParse(clientID)))
+	_, err := storage.ClientFindByID(ctx, oidc.BinaryUUID(uuid.MustParse(clientID)))
 	require.NoError(t, err)
 
 	// 3. 注销
@@ -226,7 +225,7 @@ func TestUnregisterClient(t *testing.T) {
 	require.NoError(t, err)
 
 	// 4. 验证不存在
-	_, err = storage.GetClient(ctx, oidc.BinaryUUID(uuid.MustParse(clientID)))
+	_, err = storage.ClientFindByID(ctx, oidc.BinaryUUID(uuid.MustParse(clientID)))
 	assert.ErrorIs(t, err, oidc.ErrClientNotFound)
 }
 

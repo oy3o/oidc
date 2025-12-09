@@ -336,8 +336,8 @@ func TestClient_RevokeAndIntrospect(t *testing.T) {
 		ClientID: "test-client",
 	}, nil)
 
-	// Revoke
-	err := client.Revoke(context.Background(), "some-token", "access_token")
+	// AccessTokenRevoke
+	err := client.AccessTokenRevoke(context.Background(), "some-token", "access_token")
 	require.NoError(t, err)
 	assert.Equal(t, "/revoke", mockCtx.lastRequest.URL.Path)
 

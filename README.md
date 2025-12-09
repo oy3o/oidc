@@ -47,18 +47,18 @@ import (
     
     "github.com/redis/go-redis/v9"
     "github.com/oy3o/oidc"
-    "github.com/oy3o/oidc/gorm"  // SQL Implementation
-    "github.com/oy3o/oidc/redis" // Redis Implementation
+    "github.com/oy3o/oidc/persist"
+    "github.com/oy3o/oidc/cache"
 )
 
 func main() {
     ctx := context.Background()
 
     // 1. Init Persistence Layer (SQL) -> Assets (Client, User, RT)
-    persistStore := gorm.NewGormStorage(db, &MyHasher{}, true)
+    persistStore := persist.NewPgx(db, &MyHasher{})
     
     // 2. Init Cache Layer (Redis) -> Ephemeral (AuthCode, Lock, DPoP)
-    cacheStore := redis.NewRedisStorage(redisClient)
+    cacheStore := cache.NewRedis(redisClient)
 
     // 3. [Crucial] Compose Tiered Storage
     // Requests are automatically routed to the correct layer

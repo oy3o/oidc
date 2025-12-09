@@ -7,8 +7,6 @@ import (
 	"slices"
 	"strings"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 // TokenRequest 封装了 /token 端点的标准参数
@@ -47,13 +45,12 @@ func AuthenticateClient(ctx context.Context, storage ClientStorage, clientIDStr,
 		return nil, fmt.Errorf("%w: client_id is required", ErrInvalidRequest)
 	}
 
-	clientIDRaw, err := uuid.Parse(clientIDStr)
+	clientID, err := ParseUUID(clientIDStr)
 	if err != nil {
 		return nil, fmt.Errorf("%w: invalid client_id", ErrInvalidRequest)
 	}
-	clientID := BinaryUUID(clientIDRaw)
 
-	client, err := storage.GetClient(ctx, clientID)
+	client, err := storage.ClientFindByID(ctx, clientID)
 	if err != nil {
 		if errors.Is(err, ErrClientNotFound) {
 			return nil, fmt.Errorf("%w: invalid client", ErrInvalidClient)
@@ -77,8 +74,8 @@ func AuthenticateClient(ctx context.Context, storage ClientStorage, clientIDStr,
 // ExchangeCode 用于处理 authorization_code 流程
 func ExchangeCode(ctx context.Context, storage Storage, hasher Hasher, issuer *Issuer, req *TokenRequest) (*IssuerResponse, error) {
 	// 1. 查找并消耗授权码
-	// 注意：LoadAndConsumeAuthCode 必须是一个原子操作或事务，确保 Code 只能被使用一次
-	session, err := storage.LoadAndConsumeAuthCode(ctx, req.Code)
+	// 注意：AuthCodeConsume 必须是一个原子操作或事务，确保 Code 只能被使用一次
+	session, err := storage.AuthCodeConsume(ctx, req.Code)
 	if err != nil {
 		if errors.Is(err, ErrCodeNotFound) {
 			return nil, fmt.Errorf("%w: invalid or expired code", ErrInvalidGrant)
@@ -89,11 +86,10 @@ func ExchangeCode(ctx context.Context, storage Storage, hasher Hasher, issuer *I
 	// 2. 绑定检查 (Binding Checks)
 	// 确保请求 Token 的 Client 就是当初申请 Code 的 Client
 	// 除非同时确认了 Code 和 Client 都正确, 否则返回相同的错误以防止探测攻击。
-	clientIDRaw, err := uuid.Parse(req.ClientID)
+	clientID, err := ParseUUID(req.ClientID)
 	if err != nil {
 		return nil, fmt.Errorf("%w: invalid client_id", ErrInvalidRequest)
 	}
-	clientID := BinaryUUID(clientIDRaw)
 	if session.ClientID != clientID {
 		return nil, fmt.Errorf("%w: invalid or expired code", ErrInvalidGrant)
 	}
@@ -137,7 +133,7 @@ func ExchangeCode(ctx context.Context, storage Storage, hasher Hasher, issuer *I
 	// 5. 准备 Issuer 请求
 	profile := &UserInfo{}
 	if strings.Contains(session.Scope, "openid") {
-		profile, err = storage.GetUserInfo(ctx, session.UserID, strings.Fields(session.Scope))
+		profile, err = storage.UserGetInfoByID(ctx, session.UserID, strings.Fields(session.Scope))
 		if err != nil {
 			return nil, fmt.Errorf("failed to get user info: %w", err)
 		}
@@ -192,7 +188,7 @@ func ExchangeCode(ctx context.Context, storage Storage, hasher Hasher, issuer *I
 		AMR:       session.AMR,
 	}
 
-	if err := storage.CreateRefreshToken(ctx, rtSession); err != nil {
+	if err := storage.RefreshTokenCreate(ctx, rtSession); err != nil {
 		return nil, fmt.Errorf("failed to store refresh token: %w", err)
 	}
 
@@ -211,15 +207,14 @@ func RefreshTokens(ctx context.Context, storage Storage, secretManager *SecretMa
 		return nil, err
 	}
 
-	clientIDRaw, err := uuid.Parse(req.ClientID)
+	clientID, err := ParseUUID(req.ClientID)
 	if err != nil {
 		return nil, fmt.Errorf("%w: invalid client_id", ErrInvalidRequest)
 	}
-	clientID := BinaryUUID(clientIDRaw)
 
 	// 2. 计算哈希并查找旧 Token
 	rtHash := RefreshToken(req.RefreshToken).HashForDB()
-	oldSession, err := storage.GetRefreshToken(ctx, rtHash)
+	oldSession, err := storage.RefreshTokenGet(ctx, rtHash)
 	if err != nil {
 		if errors.Is(err, ErrTokenNotFound) {
 			// 安全警报：如果使用了未知的 RT，可能是令牌被盗并已被轮换。
@@ -292,7 +287,7 @@ func RefreshTokens(ctx context.Context, storage Storage, secretManager *SecretMa
 	}
 
 	// 执行原子轮换：删除旧的，保存新的
-	if err := storage.RotateRefreshToken(ctx, rtHash, newSession); err != nil {
+	if err := storage.RefreshTokenRotate(ctx, rtHash, newSession); err != nil {
 		return nil, fmt.Errorf("failed to rotate refresh token: %w", err)
 	}
 

@@ -19,11 +19,12 @@ func TestUserInfo_ScopeFiltering(t *testing.T) {
 
 	name := "Test User"
 	email := "test@example.com"
-	storage.CreateUserInfo(ctx, &oidc.UserInfo{
+	err := storage.UserCreateInfo(ctx, &oidc.UserInfo{
 		Subject: userID.String(),
 		Name:    &name,
 		Email:   &email,
 	})
+	require.NoError(t, err)
 
 	// 辅助函数：生成 Token 并调用 UserInfo
 	getUserInfoWithScope := func(scope string) *oidc.UserInfo {
@@ -40,7 +41,7 @@ func TestUserInfo_ScopeFiltering(t *testing.T) {
 			AuthorizedParty: "client-id",
 		}
 
-		// 调用 GetUserInfo
+		// 调用 UserGetInfoByID
 		info, err := server.GetUserInfo(ctx, claims)
 		require.NoError(t, err)
 		return info

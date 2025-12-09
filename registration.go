@@ -88,7 +88,7 @@ func RegisterClient(ctx context.Context, storage ClientStorage, hasher Hasher, r
 	}
 
 	isConfidential := isConfidentialClient(req.TokenEndpointAuthMethod)
-	metadata := ClientMetadata{
+	metadata := &ClientMetadata{
 		ID:                      clientID,
 		OwnerID:                 ownerID, // 需在 ClientMetadata 结构体中添加此字段
 		RedirectURIs:            req.RedirectURIs,
@@ -97,7 +97,7 @@ func RegisterClient(ctx context.Context, storage ClientStorage, hasher Hasher, r
 		Name:                    req.ClientName,
 		LogoURI:                 req.LogoURI,
 		TokenEndpointAuthMethod: req.TokenEndpointAuthMethod,
-		IsConfidential:          isConfidential,
+		IsConfidentialClient:    isConfidential,
 		CreatedAt:               time.Now(),
 	}
 
@@ -120,11 +120,11 @@ func RegisterClient(ctx context.Context, storage ClientStorage, hasher Hasher, r
 			return nil, fmt.Errorf("oidc: failed to hash secret: %w", err)
 		}
 
-		metadata.Secret = String(hashedSecret)
+		metadata.Secret = SecretString(hashedSecret)
 	}
 
 	// 5. 持久化
-	_, err = storage.CreateClient(ctx, metadata)
+	_, err = storage.ClientCreate(ctx, metadata)
 	if err != nil {
 		return nil, fmt.Errorf("oidc: repository failed: %w", err)
 	}
@@ -148,28 +148,27 @@ func RegisterClient(ctx context.Context, storage ClientStorage, hasher Hasher, r
 // UnregisterClient 注销客户端
 // 注意：实际业务中通常需要验证是否有权删除（如验证 Registration Access Token 或 OwnerID）
 func UnregisterClient(ctx context.Context, storage ClientStorage, clientIDStr string) error {
-	id, err := uuid.Parse(clientIDStr)
+	id, err := ParseUUID(clientIDStr)
 	if err != nil {
 		return fmt.Errorf("%w: invalid client id", ErrInvalidRequest)
 	}
 
-	if err := storage.DeleteClient(ctx, BinaryUUID(id)); err != nil {
+	if err := storage.ClientDeleteByID(ctx, id); err != nil {
 		return err
 	}
 	return nil
 }
 
-// UpdateClient 更新客户端信息
+// ClientUpdate 更新客户端信息
 // RFC 7592: Update Request
-func UpdateClient(ctx context.Context, storage ClientStorage, req *ClientUpdateRequest) (*ClientRegistrationResponse, error) {
-	id, err := uuid.Parse(req.ClientID)
+func ClientUpdate(ctx context.Context, storage ClientStorage, req *ClientUpdateRequest) (*ClientRegistrationResponse, error) {
+	clientID, err := ParseUUID(req.ClientID)
 	if err != nil {
 		return nil, fmt.Errorf("%w: invalid client id", ErrInvalidRequest)
 	}
-	clientID := BinaryUUID(id)
 
 	// 1. 获取现有客户端 (确保存在)
-	_, err = storage.GetClient(ctx, clientID)
+	_, err = storage.ClientFindByID(ctx, clientID)
 	if err != nil {
 		return nil, err
 	}
@@ -188,7 +187,7 @@ func UpdateClient(ctx context.Context, storage ClientStorage, req *ClientUpdateR
 	// 注意：这里假设 RegisteredClient 接口暴露了获取 Metadata 的方法，或者直接转换
 	// 为简化，这里演示逻辑：
 
-	metadata := ClientMetadata{
+	metadata := &ClientMetadata{
 		ID:                      clientID,
 		RedirectURIs:            req.RedirectURIs,
 		GrantTypes:              req.GrantTypes,
@@ -196,10 +195,10 @@ func UpdateClient(ctx context.Context, storage ClientStorage, req *ClientUpdateR
 		Name:                    req.ClientName,
 		LogoURI:                 req.LogoURI,
 		TokenEndpointAuthMethod: req.TokenEndpointAuthMethod,
-		IsConfidential:          isConfidentialClient(req.TokenEndpointAuthMethod),
+		IsConfidentialClient:    isConfidentialClient(req.TokenEndpointAuthMethod),
 	}
 
-	updated, err := storage.UpdateClient(ctx, clientID, metadata)
+	updated, err := storage.ClientUpdate(ctx, clientID, metadata)
 	if err != nil {
 		return nil, err
 	}
@@ -214,7 +213,7 @@ func UpdateClient(ctx context.Context, storage ClientStorage, req *ClientUpdateR
 
 // ListClient 列出所有客户端
 func ListClient(ctx context.Context, storage ClientStorage, query ListQuery) ([]RegisteredClient, error) {
-	return storage.ListClients(ctx, query)
+	return storage.ClientListAll(ctx, query)
 }
 
 // ---------------------------------------------------------------------------

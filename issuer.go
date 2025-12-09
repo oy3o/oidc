@@ -229,6 +229,21 @@ func (g *Issuer) IssueClientCredentialsToken(ctx context.Context, req *IssuerReq
 	}, nil
 }
 
+// IssuePasswordResetAccessToken 生成密码修改 AccessToken
+func (g *Issuer) IssuePasswordResetAccessToken(ctx context.Context, req *IssuerRequest) (*IssuerResponse, error) {
+	req.Scopes = "user:password:reset"
+	at, err := g.accessToken(ctx, req, g.getAccessTokenTTL(req))
+	if err != nil {
+		return nil, err
+	}
+	return &IssuerResponse{
+		TokenType:   "Bearer",
+		AccessToken: string(at),
+		ExpiresIn:   int64(g.getAccessTokenTTL(req).Seconds()),
+		Scope:       req.Scopes,
+	}, nil
+}
+
 // ---------------------------------------------------------------------------
 // Internal Methods (Builders)
 // ---------------------------------------------------------------------------

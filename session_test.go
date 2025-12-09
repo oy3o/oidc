@@ -43,7 +43,7 @@ func setupSessionTest(t *testing.T) (*oidc.Server, oidc.Storage, oidc.Registered
 	// 创建客户端
 	// 注意：session.go 中简化了逻辑，暂时复用 RedirectURIs 作为 PostLogoutRedirectURIs 的白名单
 	clientID := oidc.BinaryUUID(uuid.New())
-	clientMeta := oidc.ClientMetadata{
+	clientMeta := &oidc.ClientMetadata{
 		ID:           clientID,
 		RedirectURIs: []string{"https://client.example.com/cb", "https://client.example.com/logout_cb"},
 		GrantTypes:   []string{"authorization_code"},
@@ -51,7 +51,7 @@ func setupSessionTest(t *testing.T) (*oidc.Server, oidc.Storage, oidc.Registered
 		Name:         "Session Test Client",
 	}
 
-	client, err := storage.CreateClient(context.Background(), clientMeta)
+	client, err := storage.ClientCreate(context.Background(), clientMeta)
 	require.NoError(t, err)
 
 	return server, storage, client
@@ -77,7 +77,7 @@ func TestEndSession_Success(t *testing.T) {
 
 	// 手动保存 RT 到存储 (模拟 Exchange 过程)
 	rtHash := oidc.RefreshToken(tokens.RefreshToken).HashForDB()
-	storage.CreateRefreshToken(ctx, &oidc.RefreshTokenSession{
+	storage.RefreshTokenCreate(ctx, &oidc.RefreshTokenSession{
 		ID:        rtHash,
 		ClientID:  client.GetID(),
 		UserID:    userID,
@@ -103,13 +103,13 @@ func TestEndSession_Success(t *testing.T) {
 	assert.Equal(t, "https://client.example.com/logout_cb", u.Scheme+"://"+u.Host+u.Path)
 	assert.Equal(t, "logout-state", u.Query().Get("state"))
 
-	// 5. 验证 Refresh Token 是否被撤销 (RevokeTokensForUser)
-	_, err = storage.GetRefreshToken(ctx, rtHash)
+	// 5. 验证 Refresh Token 是否被撤销 (RefreshTokenRevokeUser)
+	_, err = storage.RefreshTokenGet(ctx, rtHash)
 	assert.ErrorIs(t, err, oidc.ErrTokenNotFound, "Refresh token should be revoked")
 
-	// 6. 验证 Access Token 是否被加入黑名单 (Revoke)
+	// 6. 验证 Access Token 是否被加入黑名单 (AccessTokenRevoke)
 	claims, _ := server.ParseAccessToken(ctx, tokens.AccessToken)
-	isRevoked, err := storage.IsRevoked(ctx, claims.ID)
+	isRevoked, err := storage.AccessTokenIsRevoked(ctx, claims.ID)
 	require.NoError(t, err)
 	assert.True(t, isRevoked, "Access token JTI should be blacklisted")
 }
@@ -199,6 +199,6 @@ func TestEndSession_RevokeOnlyAccessToken(t *testing.T) {
 
 	// 4. 验证 Access Token 黑名单
 	claims, _ := server.ParseAccessToken(ctx, tokens.AccessToken)
-	isRevoked, _ := storage.IsRevoked(ctx, claims.ID)
+	isRevoked, _ := storage.AccessTokenIsRevoked(ctx, claims.ID)
 	assert.True(t, isRevoked, "Access token should be revoked even without id_token_hint")
 }

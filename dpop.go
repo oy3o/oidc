@@ -5,7 +5,6 @@ import (
 	"crypto"
 	"crypto/sha256"
 	"encoding/base64"
-	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -170,7 +169,7 @@ func ComputeJKT(jwk map[string]interface{}) (string, error) {
 	// 1. 提取并校验 kty
 	kty, ok := jwk["kty"].(string)
 	if !ok || kty == "" {
-		return "", errors.New("jwk: missing or invalid kty")
+		return "", ErrInvalidJWKType
 	}
 
 	// 2. 准备 Thumbprint 输入 map
@@ -180,7 +179,7 @@ func ComputeJKT(jwk map[string]interface{}) (string, error) {
 	switch kty {
 	case "RSA":
 		if !checkFields(jwk, "e", "n") {
-			return "", errors.New("jwk: invalid RSA key, missing required fields")
+			return "", ErrMissingJWKFields
 		}
 		thumbprintInput = map[string]interface{}{
 			"e":   jwk["e"],
@@ -189,7 +188,7 @@ func ComputeJKT(jwk map[string]interface{}) (string, error) {
 		}
 	case "EC":
 		if !checkFields(jwk, "crv", "x", "y") {
-			return "", errors.New("jwk: invalid EC key, missing required fields")
+			return "", ErrMissingJWKFields
 		}
 		thumbprintInput = map[string]interface{}{
 			"crv": jwk["crv"],
@@ -199,7 +198,7 @@ func ComputeJKT(jwk map[string]interface{}) (string, error) {
 		}
 	case "OKP": // Ed25519 / X25519
 		if !checkFields(jwk, "crv", "x") {
-			return "", errors.New("jwk: invalid OKP key, missing required fields")
+			return "", ErrMissingJWKFields
 		}
 		thumbprintInput = map[string]interface{}{
 			"crv": jwk["crv"],
@@ -208,14 +207,14 @@ func ComputeJKT(jwk map[string]interface{}) (string, error) {
 		}
 	case "oct": // 对称密钥 (HMAC)
 		if !checkFields(jwk, "k") {
-			return "", errors.New("jwk: invalid oct key, missing required fields")
+			return "", ErrMissingJWKFields
 		}
 		thumbprintInput = map[string]interface{}{
 			"k":   jwk["k"],
 			"kty": kty,
 		}
 	default:
-		return "", fmt.Errorf("jwk: unsupported key type %s", kty)
+		return "", ErrInvalidJWKType
 	}
 
 	// 3. 序列化为规范 JSON

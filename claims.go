@@ -50,7 +50,7 @@ func (ic *IDTokenClaims) SignedString(method jwt.SigningMethod, privateKey crypt
 	return IDToken(signedString), nil
 }
 
-type IDToken String
+type IDToken SecretString
 
 // AccessTokenClaims 表示自定义的 Access Token 载荷。
 // 虽然 OAuth2 没有严格规定 Access Token 格式，但使用 JWT 是常见做法。
@@ -78,7 +78,7 @@ func (ac *AccessTokenClaims) SignedString(method jwt.SigningMethod, privateKey c
 	return AccessToken(signedString), nil
 }
 
-type AccessToken String
+type AccessToken SecretString
 
 // Hash 根据签名算法计算 Access Token 的哈希值
 // 规范要求：Hash 算法必须匹配 ID Token 的签名算法
@@ -86,7 +86,7 @@ func (ac AccessToken) Hash(alg jwt.SigningMethod) (string, error) {
 	return Hash(alg, string(ac))
 }
 
-type RefreshToken String
+type RefreshToken SecretString
 
 // HashForDB 刷新 token 使用 sha256 进行 hash
 // 如果是结构化 Token (kid.meta.rand.sig)，只 Hash 随机部分 (rand)
@@ -122,7 +122,10 @@ func IssueStructuredRefreshToken(ctx context.Context, sm *SecretManager, userID 
 		UID: userID,
 		Exp: time.Now().Add(ttl).Unix(),
 	}
-	metaJson, _ := sonic.Marshal(meta)
+	metaJson, err := sonic.Marshal(meta)
+	if err != nil {
+		return "", err
+	}
 
 	// 3. 密钥
 	key, kid := sm.GetSigningKey(ctx)
@@ -178,7 +181,10 @@ func ValidateStructuredRefreshToken(ctx context.Context, sm *SecretManager, toke
 	var meta struct {
 		Exp int64 `json:"e"`
 	}
-	sonic.Unmarshal(metaJson, &meta)
+
+	if err := sonic.Unmarshal(metaJson, &meta); err != nil {
+		return err
+	}
 
 	if time.Now().Unix() > meta.Exp {
 		return ErrTokenExpired // 已过期，直接拒绝，不查库
@@ -187,7 +193,7 @@ func ValidateStructuredRefreshToken(ctx context.Context, sm *SecretManager, toke
 	return nil // 通过初步检查，现在去查数据库看是否被撤销
 }
 
-type Code String
+type Code SecretString
 
 // Hash 根据签名算法计算 Code 的哈希值
 // 规范要求：Hash 算法必须匹配 ID Token 的签名算法
@@ -224,27 +230,4 @@ func Hash(method jwt.SigningMethod, str string) (string, error) {
 
 	// Base64Url 编码
 	return base64.RawURLEncoding.EncodeToString(leftHalf), nil
-}
-
-// UserInfo 表示 OIDC UserInfo 端点的标准响应结构。
-// 参见: OIDC Core 1.0, Section 5.1.
-type UserInfo struct {
-	Subject             string  `json:"sub"`
-	Name                *string `json:"name,omitempty"`
-	GivenName           *string `json:"given_name,omitempty"`
-	FamilyName          *string `json:"family_name,omitempty"`
-	Nickname            *string `json:"nickname,omitempty"`
-	PreferredUsername   *string `json:"preferred_username,omitempty"`
-	Profile             *string `json:"profile,omitempty"`
-	Picture             *string `json:"picture,omitempty"`
-	Website             *string `json:"website,omitempty"`
-	Email               *string `json:"email,omitempty"`
-	EmailVerified       *bool   `json:"email_verified,omitempty"`
-	Gender              *string `json:"gender,omitempty"`
-	Birthdate           *string `json:"birthdate,omitempty"`
-	Zoneinfo            *string `json:"zoneinfo,omitempty"`
-	Locale              *string `json:"locale,omitempty"`
-	PhoneNumber         *string `json:"phone_number,omitempty"`
-	PhoneNumberVerified *bool   `json:"phone_number_verified,omitempty"`
-	UpdatedAt           int64   `json:"updated_at,omitempty"`
 }

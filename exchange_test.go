@@ -41,18 +41,18 @@ func setupExchangeTest(t *testing.T) (*oidc.Server, oidc.Storage, oidc.Registere
 
 	// 创建机密客户端
 	clientID := oidc.BinaryUUID(uuid.New())
-	clientMeta := oidc.ClientMetadata{
+	clientMeta := &oidc.ClientMetadata{
 		ID:                      clientID,
 		RedirectURIs:            []string{"https://client.example.com/cb"},
 		GrantTypes:              []string{"authorization_code", "refresh_token", "client_credentials"},
 		Scope:                   "openid profile offline_access",
 		Name:                    "Test Client",
-		IsConfidential:          true,
+		IsConfidentialClient:    true,
 		Secret:                  "test_secret", // MockHasher 不加密，直接存明文
 		TokenEndpointAuthMethod: "client_secret_basic",
 	}
 
-	client, err := storage.CreateClient(context.Background(), clientMeta)
+	client, err := storage.ClientCreate(context.Background(), clientMeta)
 	require.NoError(t, err)
 
 	return server, storage, client
@@ -78,7 +78,7 @@ func TestExchange_AuthCode_Success(t *testing.T) {
 		AuthTime:    time.Now(),
 		ExpiresAt:   time.Now().Add(10 * time.Minute),
 	}
-	err := storage.SaveAuthCode(ctx, session)
+	err := storage.AuthCodeSave(ctx, session)
 	require.NoError(t, err)
 
 	// 2. 发起 Exchange 请求
@@ -101,7 +101,7 @@ func TestExchange_AuthCode_Success(t *testing.T) {
 	assert.Equal(t, int64(3600), resp.ExpiresIn)
 
 	// 4. 验证 Code 已被消耗
-	_, err = storage.LoadAndConsumeAuthCode(ctx, code)
+	_, err = storage.AuthCodeConsume(ctx, code)
 	assert.ErrorIs(t, err, oidc.ErrCodeNotFound)
 }
 
@@ -125,7 +125,7 @@ func TestExchange_AuthCode_PKCE(t *testing.T) {
 		CodeChallenge:       challenge,
 		CodeChallengeMethod: oidc.CodeChallengeMethodS256,
 	}
-	storage.SaveAuthCode(ctx, session)
+	storage.AuthCodeSave(ctx, session)
 
 	// Case 1: 正确的 Verifier
 	req := &oidc.TokenRequest{
@@ -144,7 +144,7 @@ func TestExchange_AuthCode_PKCE(t *testing.T) {
 	// 重置 Code (因为上一步消耗了)
 	code2 := "pkce_code_2"
 	session.Code = code2
-	storage.SaveAuthCode(ctx, session)
+	storage.AuthCodeSave(ctx, session)
 
 	req2 := &oidc.TokenRequest{
 		GrantType:    "authorization_code",
@@ -171,7 +171,7 @@ func TestExchange_AuthCode_RedirectURIMismatch(t *testing.T) {
 		RedirectURI: "https://client.example.com/cb",
 		ExpiresAt:   time.Now().Add(time.Minute),
 	}
-	storage.SaveAuthCode(ctx, session)
+	storage.AuthCodeSave(ctx, session)
 
 	req := &oidc.TokenRequest{
 		GrantType:    "authorization_code",
@@ -197,7 +197,7 @@ func TestExchange_AuthCode_Replay(t *testing.T) {
 		UserID:    oidc.BinaryUUID(uuid.New()),
 		ExpiresAt: time.Now().Add(time.Minute),
 	}
-	storage.SaveAuthCode(ctx, session)
+	storage.AuthCodeSave(ctx, session)
 
 	req := &oidc.TokenRequest{
 		GrantType:    "authorization_code",
@@ -231,7 +231,7 @@ func TestExchange_AuthCode_DPoPBinding(t *testing.T) {
 			ExpiresAt: time.Now().Add(time.Minute),
 			DPoPJKT:   jkt, // Code 绑定了 DPoP Key
 		}
-		storage.SaveAuthCode(ctx, session)
+		storage.AuthCodeSave(ctx, session)
 	}
 
 	// Case 1: 缺少 DPoP Key
@@ -299,7 +299,7 @@ func TestExchange_RefreshToken_Success(t *testing.T) {
 		Scope:     "openid profile",
 		ExpiresAt: time.Now().Add(24 * time.Hour),
 	}
-	storage.CreateRefreshToken(ctx, session)
+	storage.RefreshTokenCreate(ctx, session)
 
 	// 2. 发起刷新请求
 	req := &oidc.TokenRequest{
@@ -318,7 +318,7 @@ func TestExchange_RefreshToken_Success(t *testing.T) {
 	assert.NotEqual(t, string(rtRaw), resp.RefreshToken) // 应该轮换了
 
 	// 4. 验证旧 Token 被删除 (MockStorage 简单实现轮换是删除旧的)
-	_, err = storage.GetRefreshToken(ctx, rtHash)
+	_, err = storage.RefreshTokenGet(ctx, rtHash)
 	assert.ErrorIs(t, err, oidc.ErrTokenNotFound)
 }
 
@@ -373,7 +373,7 @@ func TestExchange_RefreshToken_ClientMismatch(t *testing.T) {
 		UserID:    oidc.BinaryUUID(uuid.New()),
 		ExpiresAt: time.Now().Add(24 * time.Hour),
 	}
-	storage.CreateRefreshToken(ctx, session)
+	storage.RefreshTokenCreate(ctx, session)
 
 	// Request by Client B (setupExchangeTest 创建的 client)
 	req := &oidc.TokenRequest{
@@ -401,7 +401,7 @@ func TestExchange_RefreshToken_ScopeDownscoping(t *testing.T) {
 		Scope:     "openid profile email", // 原有 Scope
 		ExpiresAt: time.Now().Add(24 * time.Hour),
 	}
-	storage.CreateRefreshToken(ctx, session)
+	storage.RefreshTokenCreate(ctx, session)
 
 	// 1. 请求缩减 Scope
 	req := &oidc.TokenRequest{
@@ -418,13 +418,13 @@ func TestExchange_RefreshToken_ScopeDownscoping(t *testing.T) {
 
 	// 2. 验证新 Token 的 Scope 确实变了
 	newRTHash := oidc.RefreshToken(resp.RefreshToken).HashForDB()
-	newSession, err := storage.GetRefreshToken(ctx, newRTHash)
+	newSession, err := storage.RefreshTokenGet(ctx, newRTHash)
 	require.NoError(t, err)
 	assert.Equal(t, "openid", newSession.Scope)
 
 	// 3. 尝试请求未授权的 Scope (Up-scoping, 应禁止)
 	// 恢复环境
-	storage.CreateRefreshToken(ctx, session)
+	storage.RefreshTokenCreate(ctx, session)
 	req.Scope = "openid admin"
 	req.RefreshToken = string(rtRaw)
 

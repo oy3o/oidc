@@ -245,7 +245,7 @@ func TestServer_VerifyAccessToken(t *testing.T) {
 
 	// Case 3: 验证撤销 (Revocation)
 	// 将 Token 的 JTI 加入黑名单
-	err = storage.Revoke(ctx, claims.ID, time.Now().Add(1*time.Hour))
+	err = storage.AccessTokenRevoke(ctx, claims.ID, time.Now().Add(1*time.Hour))
 	require.NoError(t, err)
 
 	_, err = server.VerifyAccessToken(ctx, validToken)
@@ -323,13 +323,13 @@ func TestServer_Introspect(t *testing.T) {
 	// Introspection 必须由已认证的客户端调用
 	clientID := oidc.BinaryUUID(uuid.New())
 	clientSecret := "test_secret"
-	clientMeta := oidc.ClientMetadata{
-		ID:             clientID,
-		IsConfidential: true,
-		Secret:         oidc.String(clientSecret), // MockHasher 直接比对，存明文即可
-		RedirectURIs:   []string{"https://client.com/cb"},
+	clientMeta := &oidc.ClientMetadata{
+		ID:                   clientID,
+		IsConfidentialClient: true,
+		Secret:               oidc.SecretString(clientSecret), // MockHasher 直接比对，存明文即可
+		RedirectURIs:         []string{"https://client.com/cb"},
 	}
-	_, err = storage.CreateClient(ctx, clientMeta)
+	_, err = storage.ClientCreate(ctx, clientMeta)
 	require.NoError(t, err)
 
 	// 1. 生成 Access Token (用于被内省)
@@ -366,7 +366,7 @@ func TestServer_Introspect(t *testing.T) {
 	require.NoError(t, err, "ParseAccessToken failed")
 	require.NotEmpty(t, claims.ID, "JTI is missing")
 
-	err = storage.Revoke(ctx, claims.ID, time.Now().Add(time.Hour))
+	err = storage.AccessTokenRevoke(ctx, claims.ID, time.Now().Add(time.Hour))
 	require.NoError(t, err)
 
 	infoRevoked, err := server.Introspect(ctx, resp.AccessToken, clientID.String(), clientSecret)

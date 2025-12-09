@@ -77,7 +77,7 @@ func (km *KeyManager) Add(ctx context.Context, key Key) (string, error) {
 	}
 
 	// 4. 存储到持久层
-	if err := km.storage.Save(ctx, jKey); err != nil {
+	if err := km.storage.JWKSave(ctx, jKey); err != nil {
 		return "", fmt.Errorf("failed to save key to storage: %w", err)
 	}
 
@@ -86,7 +86,7 @@ func (km *KeyManager) Add(ctx context.Context, key Key) (string, error) {
 
 	// 6. 如果这是第一个 key 且没有签名 key，尝试设为签名 key
 	// 注意：并发环境下这可能不准确，但作为初始化便利性是可以的
-	current, _ := km.GetSigningKeyID(ctx)
+	current, _ := km.JWKGetSigning(ctx)
 	if current == "" {
 		_ = km.SetSigningKeyID(ctx, kid)
 	}
@@ -124,13 +124,13 @@ func (km *KeyManager) SetSigningKeyID(ctx context.Context, kid string) error {
 	// 先查缓存
 	if _, ok := km.keys.Load(kid); !ok {
 		// 再查存储
-		if _, err := km.storage.Get(ctx, kid); err != nil {
+		if _, err := km.storage.JWKGet(ctx, kid); err != nil {
 			return ErrKeyNotFound
 		}
 	}
 
 	// 2. 更新存储中的签名 ID
-	if err := km.storage.SaveSigningKeyID(ctx, kid); err != nil {
+	if err := km.storage.JWKMarkSigning(ctx, kid); err != nil {
 		return fmt.Errorf("failed to save signing key ID: %w", err)
 	}
 
@@ -140,8 +140,8 @@ func (km *KeyManager) SetSigningKeyID(ctx context.Context, kid string) error {
 	return nil
 }
 
-// GetSigningKeyID 获取当前签名密钥 ID
-func (km *KeyManager) GetSigningKeyID(ctx context.Context) (string, error) {
+// JWKGetSigning 获取当前签名密钥 ID
+func (km *KeyManager) JWKGetSigning(ctx context.Context) (string, error) {
 	// 1. 查缓存
 	if kid, ok := km.signingKeyID.Load("current"); ok {
 		// 检查缓存是否过期
@@ -153,7 +153,7 @@ func (km *KeyManager) GetSigningKeyID(ctx context.Context) (string, error) {
 	}
 
 	// 2. 查存储
-	kid, err := km.storage.GetSigningKeyID(ctx)
+	kid, err := km.storage.JWKGetSigning(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -166,7 +166,7 @@ func (km *KeyManager) GetSigningKeyID(ctx context.Context) (string, error) {
 
 // GetSigningKey 获取当前用于签名的私钥和 kid。
 func (km *KeyManager) GetSigningKey(ctx context.Context) (string, Key, error) {
-	kid, err := km.GetSigningKeyID(ctx)
+	kid, err := km.JWKGetSigning(ctx)
 	if err != nil {
 		return "", nil, ErrNoSigningKey
 	}
@@ -184,12 +184,12 @@ func (km *KeyManager) GetKey(ctx context.Context, kid string) (crypto.PublicKey,
 	// 如果 kid 为空且只有一个 key (兼容性逻辑，但在分布式下很难准确判断“只有一个”，这里简化为必须提供 kid)
 	if kid == "" {
 		// 尝试获取当前签名 key 作为默认
-		signingKid, err := km.GetSigningKeyID(ctx)
+		signingKid, err := km.JWKGetSigning(ctx)
 		if err == nil {
 			kid = signingKid
 		} else {
 			// 如果连签名 key 都没有，那就真的没办法了
-			// 或者我们可以 List 所有 key 取第一个？这在分布式下不太确定。
+			// 或者我们可以 JWKList 所有 key 取第一个？这在分布式下不太确定。
 			// 暂时返回错误。
 			return nil, ErrKeyNotFound
 		}
@@ -211,7 +211,7 @@ func (km *KeyManager) GetKeyInternal(ctx context.Context, kid string) (Key, erro
 	}
 
 	// 2. 查存储
-	jKey, err := km.storage.Get(ctx, kid)
+	jKey, err := km.storage.JWKGet(ctx, kid)
 	if err != nil {
 		return nil, err
 	}
@@ -235,7 +235,7 @@ func (km *KeyManager) GetKeyInternal(ctx context.Context, kid string) (Key, erro
 // ExportJWKS 导出所有公钥为 JWKS 结构。
 func (km *KeyManager) ExportJWKS(ctx context.Context) (*JSONWebKeySet, error) {
 	// 从存储获取所有 Key，以保证一致性
-	jKeys, err := km.storage.List(ctx)
+	jKeys, err := km.storage.JWKList(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list keys: %w", err)
 	}
@@ -279,13 +279,13 @@ func (km *KeyManager) ExportJWKS(ctx context.Context) (*JSONWebKeySet, error) {
 
 // RemoveKey 删除指定的密钥。
 func (km *KeyManager) RemoveKey(ctx context.Context, kid string) error {
-	current, _ := km.GetSigningKeyID(ctx)
+	current, _ := km.JWKGetSigning(ctx)
 	if kid == current {
 		return ErrCannotRemoveSigningKey
 	}
 
 	// 删除存储
-	if err := km.storage.Delete(ctx, kid); err != nil {
+	if err := km.storage.JWKDelete(ctx, kid); err != nil {
 		return err
 	}
 
@@ -296,7 +296,7 @@ func (km *KeyManager) RemoveKey(ctx context.Context, kid string) error {
 
 // ListKeys 返回所有密钥的 KID 列表
 func (km *KeyManager) ListKeys(ctx context.Context) ([]string, error) {
-	jKeys, err := km.storage.List(ctx)
+	jKeys, err := km.storage.JWKList(ctx)
 	if err != nil {
 		return nil, err
 	}

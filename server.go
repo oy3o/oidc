@@ -191,9 +191,9 @@ func (s *Server) UnregisterClient(ctx context.Context, clientIDStr string) error
 	return UnregisterClient(ctx, s.storage, clientIDStr)
 }
 
-// UpdateClient 处理动态客户端更新
-func (s *Server) UpdateClient(ctx context.Context, req *ClientUpdateRequest) (*ClientRegistrationResponse, error) {
-	return UpdateClient(ctx, s.storage, req)
+// ClientUpdate 处理动态客户端更新
+func (s *Server) ClientUpdate(ctx context.Context, req *ClientUpdateRequest) (*ClientRegistrationResponse, error) {
+	return ClientUpdate(ctx, s.storage, req)
 }
 
 // ListClient 列出所有客户端
@@ -356,10 +356,10 @@ func (s *Server) VerifyAccessToken(ctx context.Context, tokenStr string) (*Acces
 			state.SetAttributes(attribute.String("user_id", claims.Subject))
 			state.SetAttributes(attribute.String("client_id", claims.AuthorizedParty))
 
-			// 2. 验证撤销状态 (Revocation List)
+			// 2. 验证撤销状态 (Revocation JWKList)
 			// 如果 Access Token 有 JTI，检查是否被撤销
 			if claims.ID != "" {
-				isRevoked, err := s.storage.IsRevoked(ctx, claims.ID)
+				isRevoked, err := s.storage.AccessTokenIsRevoked(ctx, claims.ID)
 				if err != nil {
 					return fmt.Errorf("failed to check revocation: %w", err)
 				}

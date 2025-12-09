@@ -106,7 +106,7 @@ func PushedAuthorization(
 
 	// 6. 存储 PAR 会话 (TTL = 60 秒)
 	const parTTLSeconds = 60
-	err = storage.SavePARSession(ctx, requestURI, authorizeReq, time.Duration(parTTLSeconds)*time.Second)
+	err = storage.PARSessionSave(ctx, requestURI, authorizeReq, time.Duration(parTTLSeconds)*time.Second)
 	if err != nil {
 		return nil, fmt.Errorf("failed to save PAR session: %w", err)
 	}
@@ -139,7 +139,7 @@ func LoadPARSession(ctx context.Context, storage PARStorage, requestURI string) 
 	}
 
 	// 获取并删除会话 (原子操作，确保只使用一次)
-	req, err := storage.GetAndDeletePARSession(ctx, requestURI)
+	req, err := storage.PARSessionConsume(ctx, requestURI)
 	if err != nil {
 		return nil, fmt.Errorf("%w: request_uri not found or expired", ErrInvalidRequest)
 	}

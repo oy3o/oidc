@@ -2,35 +2,36 @@ package httpx_test
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/bytedance/sonic"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
-	"gorm.io/driver/sqlite"
-	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 
 	"github.com/google/uuid"
 	"github.com/oy3o/o11y"
 	"github.com/oy3o/oidc"
-	oidc_gorm "github.com/oy3o/oidc/gorm"
-	oidc_httpx "github.com/oy3o/oidc/httpx"
-	oidc_redis "github.com/oy3o/oidc/redis"
+	"github.com/oy3o/oidc/cache"
+	"github.com/oy3o/oidc/httpx"
+	"github.com/oy3o/oidc/persist"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/testcontainers/testcontainers-go/modules/postgres"
 )
 
 type clientFactory struct{}
 
 func (f *clientFactory) New() oidc.RegisteredClient {
-	return &oidc_gorm.ClientModel{}
+	return &oidc.ClientMetadata{}
 }
 
 func NewTestCache(t *testing.T) oidc.Cache {
@@ -39,36 +40,19 @@ func NewTestCache(t *testing.T) oidc.Cache {
 	rdb := redis.NewClient(&redis.Options{
 		Addr: s.Addr(),
 	})
-	return oidc_redis.NewRedisStorage(rdb, &clientFactory{})
+	return cache.NewRedis(rdb, &clientFactory{})
 }
 
-func NewTestDB() oidc.Persistence {
-	db, _ := gorm.Open(sqlite.Open("file::memory:"), &gorm.Config{
-		Logger: logger.Default.LogMode(logger.Silent),
-	})
+// 全局变量，整个测试套件生命周期内只初始化一次
+var (
+	testPool      *pgxpool.Pool
+	testContainer *postgres.PostgresContainer
+	poolOnce      sync.Once
+)
 
-	hasher := &mockHasher{}
-	storage := oidc_gorm.NewGormStorage(db, hasher, true)
-	db.AutoMigrate(
-		&oidc_gorm.ClientModel{},
-		&oidc_gorm.AuthCodeModel{},
-		&oidc_gorm.RefreshTokenModel{},
-		&oidc_gorm.BlacklistModel{},
-		&oidc_gorm.DeviceCodeModel{},
-		&oidc_gorm.UserModel{},
-		&oidc_gorm.PARModel{},
-		&oidc_gorm.KeyModel{},
-		&oidc_gorm.LockModel{},
-	)
-	return storage
-}
-
-func NewTestStorage(t *testing.T) oidc.Storage {
-	return oidc.NewTieredStorage(NewTestDB(), NewTestCache(t))
-}
-
-// TestMain 初始化测试环境
+// TestMain 控制测试的主入口，负责全局容器的启动和销毁
 func TestMain(m *testing.M) {
+	ctx := context.Background()
 	cfg := o11y.Config{
 		Enabled:     true,
 		Service:     "oidc-httpx-test",
@@ -81,9 +65,109 @@ func TestMain(m *testing.M) {
 		Metric: o11y.MetricConfig{Enabled: false},
 	}
 	shutdown, _ := o11y.Init(cfg)
+
+	// 1. 启动容器 (只启动一次)
+	poolOnce.Do(func() {
+		container, err := postgres.Run(
+			ctx,
+			"docker.io/postgres:18-alpine",
+			postgres.WithInitScripts("../persist/init.sql"),
+			postgres.BasicWaitStrategies(),
+		)
+		if err != nil {
+			fmt.Printf("failed to start container: %v\n", err)
+			os.Exit(1)
+		}
+		testContainer = container
+
+		// 2. 获取连接字符串
+		connStr, err := container.ConnectionString(ctx, "sslmode=disable")
+		if err != nil {
+			fmt.Printf("failed to get connection string: %v\n", err)
+			_ = container.Terminate(ctx)
+			os.Exit(1)
+		}
+
+		// 3. 配置连接池
+		dbConfig, err := pgxpool.ParseConfig(connStr)
+		if err != nil {
+			fmt.Printf("failed to parse config: %v\n", err)
+			_ = container.Terminate(ctx)
+			os.Exit(1)
+		}
+		dbConfig.MinConns = 1
+		dbConfig.MaxConns = 10 // 稍微调大一点，避免测试并发不够
+
+		pool, err := pgxpool.NewWithConfig(ctx, dbConfig)
+		if err != nil {
+			fmt.Printf("failed to create pool: %v\n", err)
+			_ = container.Terminate(ctx)
+			os.Exit(1)
+		}
+		testPool = pool
+
+		// 等待数据库就绪
+		if err := waitForDB(ctx, pool); err != nil {
+			fmt.Printf("database not ready: %v\n", err)
+			_ = container.Terminate(ctx)
+			os.Exit(1)
+		}
+	})
+
+	// 4. 运行所有测试
 	code := m.Run()
+
+	// 5. 清理资源
+	testPool.Close()
+	if err := testContainer.Terminate(ctx); err != nil {
+		fmt.Printf("failed to terminate container: %v\n", err)
+	}
+
 	shutdown(context.Background())
 	os.Exit(code)
+}
+
+// waitForDB 简单的重试逻辑
+func waitForDB(ctx context.Context, pool *pgxpool.Pool) error {
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	timeout := time.After(5 * time.Second)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-timeout:
+			return context.DeadlineExceeded
+		case <-ticker.C:
+			if err := pool.Ping(ctx); err == nil {
+				return nil
+			}
+		}
+	}
+}
+
+// NewTestDB 获取全局的 Pool，并清空数据
+func NewTestDB(t *testing.T) oidc.Persistence {
+	if testPool == nil {
+		t.Fatal("Global test pool is not initialized. TestMain failed to run?")
+	}
+
+	// 每次测试前清空表，保证测试隔离性 (TRUNCATE 速度极快)
+	// CASCADE 会自动处理外键依赖
+	_, err := testPool.Exec(context.Background(), `
+		TRUNCATE users, profiles, credentials, oidc_clients, 
+		oidc_auth_codes, oidc_device_codes, oidc_refresh_tokens, jwks 
+		CASCADE
+	`)
+	require.NoError(t, err, "failed to clean database")
+
+	hasher := &mockHasher{}
+	return persist.NewPgx(testPool, hasher)
+}
+
+func NewTestStorage(t *testing.T) oidc.Storage {
+	return oidc.NewTieredStorage(NewTestDB(t), NewTestCache(t))
 }
 
 // setupServer 创建一个完全配置的 OIDC Server 用于测试
@@ -113,17 +197,17 @@ func setupServer(t *testing.T) (*oidc.Server, oidc.Storage, oidc.RegisteredClien
 
 	// 4. 创建一个测试客户端
 	clientID := oidc.BinaryUUID(uuid.New())
-	clientMeta := oidc.ClientMetadata{
+	clientMeta := &oidc.ClientMetadata{
 		ID:                      clientID,
 		RedirectURIs:            []string{"https://client.com/cb"},
 		GrantTypes:              []string{"authorization_code", "client_credentials"},
 		Scope:                   "openid profile",
 		Name:                    "HTTPX Test Client",
-		IsConfidential:          true,
+		IsConfidentialClient:    true,
 		Secret:                  "hashed_test_secret",
 		TokenEndpointAuthMethod: "client_secret_basic",
 	}
-	client, err := storage.CreateClient(context.Background(), clientMeta)
+	client, err := storage.ClientCreate(context.Background(), clientMeta)
 	require.NoError(t, err)
 
 	return server, storage, client
@@ -149,7 +233,7 @@ func (m *mockHasher) Compare(ctx context.Context, hashedPassword []byte, passwor
 
 func TestDiscoveryHandler(t *testing.T) {
 	server, _, _ := setupServer(t)
-	handler := oidc_httpx.DiscoveryHandler(server)
+	handler := httpx.DiscoveryHandler(server)
 
 	req := httptest.NewRequest("GET", "/.well-known/openid-configuration", nil)
 	w := httptest.NewRecorder()
@@ -168,7 +252,7 @@ func TestDiscoveryHandler(t *testing.T) {
 
 func TestJWKSHandler(t *testing.T) {
 	server, _, _ := setupServer(t)
-	handler := oidc_httpx.JWKSHandler(server)
+	handler := httpx.JWKSHandler(server)
 
 	req := httptest.NewRequest("GET", "/jwks.json", nil)
 	w := httptest.NewRecorder()
@@ -196,7 +280,7 @@ func TestJWKSHandler(t *testing.T) {
 
 func TestTokenHandler_ErrorHandling(t *testing.T) {
 	server, _, _ := setupServer(t)
-	handler := oidc_httpx.TokenHandler(server)
+	handler := httpx.TokenHandler(server)
 
 	v := url.Values{}
 	v.Set("grant_type", "unknown_grant")
@@ -216,7 +300,7 @@ func TestTokenHandler_ErrorHandling(t *testing.T) {
 
 func TestTokenHandler_ClientCredentials(t *testing.T) {
 	server, _, client := setupServer(t)
-	handler := oidc_httpx.TokenHandler(server)
+	handler := httpx.TokenHandler(server)
 
 	v := url.Values{}
 	v.Set("grant_type", "client_credentials")
@@ -243,10 +327,10 @@ func TestTokenHandler_ClientCredentials(t *testing.T) {
 
 func TestAuthenticationMiddleware_Compliance(t *testing.T) {
 	server, _, client := setupServer(t)
-	mw := oidc_httpx.AuthenticationMiddleware(server)
+	mw := httpx.AuthenticationMiddleware(server)
 
 	protectedHandler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		claims, err := oidc_httpx.GetClaims(r.Context())
+		claims, err := httpx.GetClaims(r.Context())
 		require.NoError(t, err)
 		assert.NotEmpty(t, claims.Subject)
 		w.WriteHeader(http.StatusOK)
@@ -308,8 +392,8 @@ func TestAuthenticationMiddleware_Compliance(t *testing.T) {
 // -----------------------------------------------------------------------------
 func TestUserInfoHandler(t *testing.T) {
 	server, storage, client := setupServer(t)
-	mw := oidc_httpx.AuthenticationMiddleware(server)
-	handler := mw(oidc_httpx.UserInfoHandler(server))
+	mw := httpx.AuthenticationMiddleware(server)
+	handler := mw(httpx.UserInfoHandler(server))
 	ctx := context.Background()
 
 	// 1. 准备用户数据
@@ -318,7 +402,7 @@ func TestUserInfoHandler(t *testing.T) {
 	userName := "Test User"
 	userEmail := "test@example.com"
 
-	err := storage.CreateUserInfo(ctx, &oidc.UserInfo{
+	err := storage.UserCreateInfo(ctx, &oidc.UserInfo{
 		Subject: userID.String(),
 		Name:    &userName,
 		Email:   &userEmail,
@@ -364,7 +448,7 @@ func TestUserInfoHandler(t *testing.T) {
 
 func TestIntrospectionHandler(t *testing.T) {
 	server, _, client := setupServer(t)
-	handler := oidc_httpx.IntrospectionHandler(server)
+	handler := httpx.IntrospectionHandler(server)
 
 	// 1. 获取一个有效 Token
 	tokenResp, err := server.Exchange(context.Background(), &oidc.TokenRequest{

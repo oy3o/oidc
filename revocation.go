@@ -32,7 +32,7 @@ func RevokeToken(ctx context.Context, storage Storage, secretManager *SecretMana
 
 	switch req.TokenTypeHint {
 	case "refresh_token":
-		revokeErr = RevokeRefreshToken(ctx, storage, secretManager, req.Token, client)
+		revokeErr = RefreshTokenRevoke(ctx, storage, secretManager, req.Token, client)
 		if errors.Is(revokeErr, ErrTokenNotFound) || errors.Is(revokeErr, jwt.ErrTokenMalformed) {
 			// 如果不是 Refresh Token，尝试当作 Access Token 处理
 			revokeErr = RevokeAccessToken(ctx, storage, verifier, req.Token, client)
@@ -41,14 +41,14 @@ func RevokeToken(ctx context.Context, storage Storage, secretManager *SecretMana
 		revokeErr = RevokeAccessToken(ctx, storage, verifier, req.Token, client)
 		if errors.Is(revokeErr, jwt.ErrTokenMalformed) {
 			// 如果格式不对（例如不是 JWT），尝试当作 Refresh Token 处理
-			revokeErr = RevokeRefreshToken(ctx, storage, secretManager, req.Token, client)
+			revokeErr = RefreshTokenRevoke(ctx, storage, secretManager, req.Token, client)
 		}
 	default:
 		// 未指定 hint，先尝试 Access Token (通常是 JWT，格式校验快)
 		revokeErr = RevokeAccessToken(ctx, storage, verifier, req.Token, client)
 		if errors.Is(revokeErr, jwt.ErrTokenMalformed) {
 			// 格式不对，尝试 Refresh Token
-			revokeErr = RevokeRefreshToken(ctx, storage, secretManager, req.Token, client)
+			revokeErr = RefreshTokenRevoke(ctx, storage, secretManager, req.Token, client)
 		}
 	}
 
@@ -100,15 +100,15 @@ func RevokeAccessToken(ctx context.Context, storage RevocationStorage, verifier 
 	}
 
 	// 加入黑名单
-	if err := storage.Revoke(ctx, claims.ID, expiration); err != nil {
+	if err := storage.AccessTokenRevoke(ctx, claims.ID, expiration); err != nil {
 		return fmt.Errorf("failed to revoke access token: %w", err)
 	}
 
 	return nil
 }
 
-// RevokeRefreshToken 处理 Opaque Refresh Token 的撤销 (物理删除/标记)
-func RevokeRefreshToken(ctx context.Context, storage TokenStorage, secretManager *SecretManager, tokenStr string, client RegisteredClient) error {
+// RefreshTokenRevoke 处理 Opaque Refresh Token 的撤销 (物理删除/标记)
+func RefreshTokenRevoke(ctx context.Context, storage TokenStorage, secretManager *SecretManager, tokenStr string, client RegisteredClient) error {
 	// 0. 确认 Refresh Token 的有效性
 	if tokenStr == "" {
 		return fmt.Errorf("%w: refresh_token is required", ErrInvalidRequest)
@@ -121,7 +121,7 @@ func RevokeRefreshToken(ctx context.Context, storage TokenStorage, secretManager
 	tokenHash := RefreshToken(tokenStr).HashForDB()
 
 	// 2. 查找令牌
-	session, err := storage.GetRefreshToken(ctx, tokenHash)
+	session, err := storage.RefreshTokenGet(ctx, tokenHash)
 	if err != nil {
 		// 包含 ErrTokenNotFound
 		return err
@@ -133,7 +133,7 @@ func RevokeRefreshToken(ctx context.Context, storage TokenStorage, secretManager
 	}
 
 	// 4. 执行撤销
-	if err := storage.RevokeRefreshToken(ctx, tokenHash); err != nil {
+	if err := storage.RefreshTokenRevoke(ctx, tokenHash); err != nil {
 		return fmt.Errorf("failed to revoke refresh token: %w", err)
 	}
 

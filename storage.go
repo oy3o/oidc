@@ -16,7 +16,7 @@ import (
 //   - Writes: Cache-Aside (DB -> Invalidate Cache on success)
 //     After DB commit, we invalidate cache. If invalidation fails, we log the error but don't fail the request.
 //     This ensures eventual consistency and prevents stale cache data.
-//   - Deletes: DB -> Cache Delete
+//   - Deletes: DB -> Cache JWKDelete
 type TieredStorage struct {
 	Persistence
 	Cache
@@ -37,83 +37,83 @@ var _ Storage = (*TieredStorage)(nil)
 // ClientStorage Implementation (Read-Through / Write-Through)
 // ---------------------------------------------------------------------------
 
-func (s *TieredStorage) GetClient(ctx context.Context, clientID BinaryUUID) (RegisteredClient, error) {
+func (s *TieredStorage) ClientFindByID(ctx context.Context, clientID BinaryUUID) (RegisteredClient, error) {
 	// 1. Try Cache (Read-Through)
-	client, err := s.Cache.GetClient(ctx, clientID)
+	client, err := s.Cache.ClientFindByID(ctx, clientID)
 	if err == nil {
 		return client, nil
 	}
 	// Ignore cache miss/error, proceed to DB
 
 	// 2. Fetch from DB
-	client, err = s.Persistence.GetClient(ctx, clientID)
+	client, err = s.Persistence.ClientFindByID(ctx, clientID)
 	if err != nil {
 		return nil, err
 	}
 
 	// 3. Populate Cache (Async or Sync? Sync for Read-Through usually)
 	// We use a short TTL or standard TTL. Let's assume 1 hour for clients.
-	_ = s.Cache.SaveClient(ctx, client, time.Hour)
+	_ = s.Cache.ClientCache(ctx, client, time.Hour)
 
 	return client, nil
 }
 
-func (s *TieredStorage) CreateClient(ctx context.Context, metadata ClientMetadata) (RegisteredClient, error) {
+func (s *TieredStorage) ClientCreate(ctx context.Context, metadata *ClientMetadata) (RegisteredClient, error) {
 	// 1. Write DB (Write-Through)
-	client, err := s.Persistence.CreateClient(ctx, metadata)
+	client, err := s.Persistence.ClientCreate(ctx, metadata)
 	if err != nil {
 		return nil, err
 	}
 
 	// 2. Write Cache
-	_ = s.Cache.SaveClient(ctx, client, time.Hour)
+	_ = s.Cache.ClientCache(ctx, client, time.Hour)
 	return client, nil
 }
 
-func (s *TieredStorage) UpdateClient(ctx context.Context, clientID BinaryUUID, metadata ClientMetadata) (RegisteredClient, error) {
+func (s *TieredStorage) ClientUpdate(ctx context.Context, clientID BinaryUUID, metadata *ClientMetadata) (RegisteredClient, error) {
 	// 1. Write DB
-	client, err := s.Persistence.UpdateClient(ctx, clientID, metadata)
+	client, err := s.Persistence.ClientUpdate(ctx, clientID, metadata)
 	if err != nil {
 		return nil, err
 	}
 
 	// 2. Invalidate Cache (Cache-Aside)
 	// If cache invalidation fails, log but don't fail the request (eventual consistency)
-	if err := s.Cache.InvalidateClient(ctx, clientID); err != nil {
+	if err := s.Cache.ClientInvalidate(ctx, clientID); err != nil {
 		log.Error().Err(err).Msg("Failed to invalidate client cache")
 	}
 	return client, nil
 }
 
-func (s *TieredStorage) DeleteClient(ctx context.Context, clientID BinaryUUID) error {
-	// 1. Delete DB
-	if err := s.Persistence.DeleteClient(ctx, clientID); err != nil {
+func (s *TieredStorage) ClientDeleteByID(ctx context.Context, clientID BinaryUUID) error {
+	// 1. JWKDelete DB
+	if err := s.Persistence.ClientDeleteByID(ctx, clientID); err != nil {
 		return err
 	}
 
-	// 2. Delete Cache
-	if err := s.Cache.InvalidateClient(ctx, clientID); err != nil {
+	// 2. JWKDelete Cache
+	if err := s.Cache.ClientInvalidate(ctx, clientID); err != nil {
 		log.Error().Err(err).Msg("Failed to invalidate client cache")
 	}
 	return nil
 }
 
-func (s *TieredStorage) ListClientsByOwner(ctx context.Context, ownerID BinaryUUID) ([]RegisteredClient, error) {
+func (s *TieredStorage) ClientListByOwner(ctx context.Context, ownerID BinaryUUID) ([]RegisteredClient, error) {
 	// No caching for lists usually, unless complex. Direct to DB.
-	return s.Persistence.ListClientsByOwner(ctx, ownerID)
+	return s.Persistence.ClientListByOwner(ctx, ownerID)
 }
 
-func (s *TieredStorage) ListClients(ctx context.Context, query ListQuery) ([]RegisteredClient, error) {
-	return s.Persistence.ListClients(ctx, query)
+func (s *TieredStorage) ClientListAll(ctx context.Context, query ListQuery) ([]RegisteredClient, error) {
+	return s.Persistence.ClientListAll(ctx, query)
 }
 
 // ---------------------------------------------------------------------------
 // TokenStorage Implementation (Read-Through / Write-Through)
 // ---------------------------------------------------------------------------
 
-func (s *TieredStorage) CreateRefreshToken(ctx context.Context, session *RefreshTokenSession) error {
+func (s *TieredStorage) RefreshTokenCreate(ctx context.Context, session *RefreshTokenSession) error {
 	// 1. Write DB
-	if err := s.Persistence.CreateRefreshToken(ctx, session); err != nil {
+	if err := s.Persistence.RefreshTokenCreate(ctx, session); err != nil {
 		return err
 	}
 
@@ -122,20 +122,20 @@ func (s *TieredStorage) CreateRefreshToken(ctx context.Context, session *Refresh
 	// Or cache for full duration.
 	ttl := time.Until(session.ExpiresAt)
 	if ttl > 0 {
-		_ = s.Cache.SaveRefreshToken(ctx, session, ttl)
+		_ = s.Cache.RefreshTokenCache(ctx, session, ttl)
 	}
 	return nil
 }
 
-func (s *TieredStorage) GetRefreshToken(ctx context.Context, tokenID Hash256) (*RefreshTokenSession, error) {
+func (s *TieredStorage) RefreshTokenGet(ctx context.Context, tokenID Hash256) (*RefreshTokenSession, error) {
 	// 1. Try Cache
-	session, err := s.Cache.GetRefreshToken(ctx, tokenID)
+	session, err := s.Cache.RefreshTokenGet(ctx, tokenID)
 	if err == nil {
 		return session, nil
 	}
 
 	// 2. Fetch DB
-	session, err = s.Persistence.GetRefreshToken(ctx, tokenID)
+	session, err = s.Persistence.RefreshTokenGet(ctx, tokenID)
 	if err != nil {
 		return nil, err
 	}
@@ -143,21 +143,21 @@ func (s *TieredStorage) GetRefreshToken(ctx context.Context, tokenID Hash256) (*
 	// 3. Populate Cache
 	ttl := time.Until(session.ExpiresAt)
 	if ttl > 0 {
-		_ = s.Cache.SaveRefreshToken(ctx, session, ttl)
+		_ = s.Cache.RefreshTokenCache(ctx, session, ttl)
 	}
 
 	return session, nil
 }
 
-func (s *TieredStorage) RotateRefreshToken(ctx context.Context, oldTokenID Hash256, newSession *RefreshTokenSession) error {
+func (s *TieredStorage) RefreshTokenRotate(ctx context.Context, oldTokenID Hash256, newSession *RefreshTokenSession) error {
 	// 1. Write DB (Transaction ideally handled by DB layer)
-	if err := s.Persistence.RotateRefreshToken(ctx, oldTokenID, newSession); err != nil {
+	if err := s.Persistence.RefreshTokenRotate(ctx, oldTokenID, newSession); err != nil {
 		return err
 	}
 
 	// 2. Invalidate old token from cache (Cache-Aside)
 	// If cache invalidation fails, log but don't fail the request
-	if err := s.Cache.InvalidateRefreshToken(ctx, oldTokenID); err != nil {
+	if err := s.Cache.RefreshTokenInvalidate(ctx, oldTokenID); err != nil {
 		log.Error().Err(err).Msg("Failed to invalidate refresh token cache")
 	}
 
@@ -166,26 +166,26 @@ func (s *TieredStorage) RotateRefreshToken(ctx context.Context, oldTokenID Hash2
 	return nil
 }
 
-func (s *TieredStorage) RevokeRefreshToken(ctx context.Context, tokenID Hash256) error {
+func (s *TieredStorage) RefreshTokenRevoke(ctx context.Context, tokenID Hash256) error {
 	// 1. DB
-	if err := s.Persistence.RevokeRefreshToken(ctx, tokenID); err != nil {
+	if err := s.Persistence.RefreshTokenRevoke(ctx, tokenID); err != nil {
 		return err
 	}
 	// 2. Cache (log failure but don't block)
-	if err := s.Cache.InvalidateRefreshToken(ctx, tokenID); err != nil {
+	if err := s.Cache.RefreshTokenInvalidate(ctx, tokenID); err != nil {
 		log.Error().Err(err).Msg("Failed to invalidate refresh token cache")
 	}
 	return nil
 }
 
-func (s *TieredStorage) RevokeTokensForUser(ctx context.Context, userID BinaryUUID) ([]Hash256, error) {
+func (s *TieredStorage) RefreshTokenRevokeUser(ctx context.Context, userID BinaryUUID) ([]Hash256, error) {
 	// 1. DB
-	ids, err := s.Persistence.RevokeTokensForUser(ctx, userID)
+	ids, err := s.Persistence.RefreshTokenRevokeUser(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
 	// 2. Cache
-	if err := s.Cache.InvalidateRefreshTokens(ctx, ids); err != nil {
+	if err := s.Cache.RefreshTokensInvalidate(ctx, ids); err != nil {
 		log.Error().Err(err).Msg("Failed to invalidate refresh token cache")
 	}
 	return ids, nil
@@ -195,56 +195,56 @@ func (s *TieredStorage) RevokeTokensForUser(ctx context.Context, userID BinaryUU
 // KeyStorage Implementation (Read-Through / Write-Through)
 // ---------------------------------------------------------------------------
 
-func (s *TieredStorage) Save(ctx context.Context, key jwk.Key) error {
-	if err := s.Persistence.Save(ctx, key); err != nil {
+func (s *TieredStorage) JWKSave(ctx context.Context, key jwk.Key) error {
+	if err := s.Persistence.JWKSave(ctx, key); err != nil {
 		return err
 	}
-	// Redis KeyStorage Save is already implemented in RedisStorage, so we can call it.
+	// Redis KeyStorage JWKSave is already implemented in RedisStorage, so we can call it.
 	// But `s.cache` is `Cache` interface which embeds `KeyStorage`.
-	return s.Cache.Save(ctx, key)
+	return s.Cache.JWKSave(ctx, key)
 }
 
-func (s *TieredStorage) Get(ctx context.Context, kid string) (jwk.Key, error) {
-	key, err := s.Cache.Get(ctx, kid)
+func (s *TieredStorage) JWKGet(ctx context.Context, kid string) (jwk.Key, error) {
+	key, err := s.Cache.JWKGet(ctx, kid)
 	if err == nil {
 		return key, nil
 	}
-	key, err = s.Persistence.Get(ctx, kid)
+	key, err = s.Persistence.JWKGet(ctx, kid)
 	if err != nil {
 		return nil, err
 	}
-	_ = s.Cache.Save(ctx, key)
+	_ = s.Cache.JWKSave(ctx, key)
 	return key, nil
 }
 
-func (s *TieredStorage) List(ctx context.Context) ([]jwk.Key, error) {
-	// List from DB is safer for source of truth
-	return s.Persistence.List(ctx)
+func (s *TieredStorage) JWKList(ctx context.Context) ([]jwk.Key, error) {
+	// JWKList from DB is safer for source of truth
+	return s.Persistence.JWKList(ctx)
 }
 
-func (s *TieredStorage) Delete(ctx context.Context, kid string) error {
-	if err := s.Persistence.Delete(ctx, kid); err != nil {
+func (s *TieredStorage) JWKDelete(ctx context.Context, kid string) error {
+	if err := s.Persistence.JWKDelete(ctx, kid); err != nil {
 		return err
 	}
-	return s.Cache.Delete(ctx, kid)
+	return s.Cache.JWKDelete(ctx, kid)
 }
 
-func (s *TieredStorage) SaveSigningKeyID(ctx context.Context, kid string) error {
-	if err := s.Persistence.SaveSigningKeyID(ctx, kid); err != nil {
+func (s *TieredStorage) JWKMarkSigning(ctx context.Context, kid string) error {
+	if err := s.Persistence.JWKMarkSigning(ctx, kid); err != nil {
 		return err
 	}
-	return s.Cache.SaveSigningKeyID(ctx, kid)
+	return s.Cache.JWKMarkSigning(ctx, kid)
 }
 
-func (s *TieredStorage) GetSigningKeyID(ctx context.Context) (string, error) {
-	id, err := s.Cache.GetSigningKeyID(ctx)
+func (s *TieredStorage) JWKGetSigning(ctx context.Context) (string, error) {
+	id, err := s.Cache.JWKGetSigning(ctx)
 	if err == nil {
 		return id, nil
 	}
-	id, err = s.Persistence.GetSigningKeyID(ctx)
+	id, err = s.Persistence.JWKGetSigning(ctx)
 	if err != nil {
 		return "", err
 	}
-	_ = s.Cache.SaveSigningKeyID(ctx, id)
+	_ = s.Cache.JWKMarkSigning(ctx, id)
 	return id, nil
 }

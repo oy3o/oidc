@@ -86,7 +86,7 @@ func TestKeyManager_Add_Manual(t *testing.T) {
 	assert.Equal(t, rawKey, gotKey)
 
 	// 4. 验证这是第一个 Key，是否自动设为签名 Key (取决于 Add 的实现细节，当前实现会尝试设为签名 Key 如果没有的话)
-	signingKid, err := km.GetSigningKeyID(ctx)
+	signingKid, err := km.JWKGetSigning(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, kid, signingKid)
 }
@@ -96,14 +96,14 @@ func TestKeyManager_SigningKeySelection(t *testing.T) {
 	ctx := context.Background()
 
 	// 1. 初始状态：无签名 Key
-	_, err := km.GetSigningKeyID(ctx)
+	_, err := km.JWKGetSigning(ctx)
 	assert.ErrorIs(t, err, oidc.ErrKeyNotFound)
 
 	// 2. 生成 Key A (设为签名)
 	kidA, err := km.Generate(ctx, oidc.KEY_RSA, true)
 	require.NoError(t, err)
 
-	curr, err := km.GetSigningKeyID(ctx)
+	curr, err := km.JWKGetSigning(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, kidA, curr)
 
@@ -111,14 +111,14 @@ func TestKeyManager_SigningKeySelection(t *testing.T) {
 	kidB, err := km.Generate(ctx, oidc.KEY_RSA, false)
 	require.NoError(t, err)
 
-	curr, err = km.GetSigningKeyID(ctx)
+	curr, err = km.JWKGetSigning(ctx)
 	assert.Equal(t, kidA, curr, "Generating new key without flag should not change signing key")
 
 	// 4. 手动切换到 Key B
 	err = km.SetSigningKeyID(ctx, kidB)
 	require.NoError(t, err)
 
-	curr, err = km.GetSigningKeyID(ctx)
+	curr, err = km.JWKGetSigning(ctx)
 	assert.Equal(t, kidB, curr)
 
 	// 5. 尝试切换到不存在的 Key
@@ -134,7 +134,7 @@ func TestKeyManager_SigningKey_Cache(t *testing.T) {
 	kidA, _ := km.Generate(ctx, oidc.KEY_RSA, true)
 
 	// 2. 第一次获取 (Cache Miss -> DB)
-	curr, _ := km.GetSigningKeyID(ctx)
+	curr, _ := km.JWKGetSigning(ctx)
 	assert.Equal(t, kidA, curr)
 
 	// 3. 直接修改 DB (模拟分布式环境下其他实例修改了配置)
@@ -146,17 +146,17 @@ func TestKeyManager_SigningKey_Cache(t *testing.T) {
 	kidB, _ = km.Add(ctx, rawKeyB)
 
 	// 绕过 km 缓存，直接操作 storage 修改 signing key ID
-	storage.SaveSigningKeyID(ctx, kidB)
+	storage.JWKMarkSigning(ctx, kidB)
 
 	// 4. 立即获取 (Cache Hit -> Still A)
-	curr, _ = km.GetSigningKeyID(ctx)
+	curr, _ = km.JWKGetSigning(ctx)
 	assert.Equal(t, kidA, curr, "Should return cached key A")
 
 	// 5. 等待缓存过期
 	time.Sleep(150 * time.Millisecond)
 
 	// 6. 再次获取 (Cache Expired -> DB -> B)
-	curr, _ = km.GetSigningKeyID(ctx)
+	curr, _ = km.JWKGetSigning(ctx)
 	assert.Equal(t, kidB, curr, "Should return new key B after cache expiry")
 }
 
@@ -220,7 +220,7 @@ func TestKeyManager_RemoveKey(t *testing.T) {
 	_, err = km.GetKeyInternal(ctx, kidB)
 	assert.ErrorIs(t, err, oidc.ErrKeyNotFound)
 
-	// 4. 验证从 List 中消失
+	// 4. 验证从 JWKList 中消失
 	ids, _ := km.ListKeys(ctx)
 	assert.NotContains(t, ids, kidB)
 	assert.Contains(t, ids, kidA)

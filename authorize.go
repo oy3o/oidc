@@ -8,8 +8,6 @@ import (
 	"slices"
 	"strings"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 // AuthorizeRequest 封装授权端点的请求参数
@@ -72,12 +70,12 @@ func RequestAuthorize(ctx context.Context, storage Storage, req *AuthorizeReques
 		req.FinalScope = finalScope
 	}
 
-	clientID, err := uuid.Parse(req.ClientID)
+	clientID, err := ParseUUID(req.ClientID)
 	if err != nil {
 		return nil, fmt.Errorf("%w: invalid client_id", ErrInvalidRequest)
 	}
 	// 1. 验证 Client ID
-	client, err := storage.GetClient(ctx, BinaryUUID(clientID))
+	client, err := storage.ClientFindByID(ctx, clientID)
 	// [安全] 即使客户端未找到，我们也不立即返回，而是继续后续验证，以防止客户端ID枚举攻击。
 	if err != nil && !errors.Is(err, ErrClientNotFound) {
 		return nil, err
@@ -132,12 +130,12 @@ func ResponseAuthorized(ctx context.Context, storage AuthCodeStorage, req *Autho
 		return "", ErrUserIDRequired
 	}
 
-	clientID, err := uuid.Parse(req.ClientID)
+	clientID, err := ParseUUID(req.ClientID)
 	if err != nil {
 		return "", fmt.Errorf("%w: invalid client_id", ErrInvalidRequest)
 	}
 
-	userID, err := uuid.Parse(req.UserID)
+	userID, err := ParseUUID(req.UserID)
 	if err != nil {
 		return "", fmt.Errorf("%w: invalid user_id", ErrInvalidRequest)
 	}
@@ -162,8 +160,8 @@ func ResponseAuthorized(ctx context.Context, storage AuthCodeStorage, req *Autho
 	// 3. 构造 Session 对象
 	session := &AuthCodeSession{
 		Code:                code,
-		ClientID:            BinaryUUID(clientID),
-		UserID:              BinaryUUID(userID),
+		ClientID:            clientID,
+		UserID:              userID,
 		AuthTime:            req.AuthTime,
 		ExpiresAt:           time.Now().Add(codeTTL),
 		RedirectURI:         req.RedirectURI,
@@ -175,7 +173,7 @@ func ResponseAuthorized(ctx context.Context, storage AuthCodeStorage, req *Autho
 	}
 
 	// 4. 持久化存储
-	if err := storage.SaveAuthCode(ctx, session); err != nil {
+	if err := storage.AuthCodeSave(ctx, session); err != nil {
 		return "", fmt.Errorf("failed to save auth code: %w", err)
 	}
 

@@ -21,19 +21,19 @@ func setupPARTest(t *testing.T) (oidc.Storage, oidc.RegisteredClient, oidc.Hashe
 
 	// 创建一个机密客户端
 	clientID := oidc.BinaryUUID(uuid.New())
-	clientMeta := oidc.ClientMetadata{
+	clientMeta := &oidc.ClientMetadata{
 		ID:           clientID,
 		RedirectURIs: []string{"https://client.example.com/cb"},
 		GrantTypes:   []string{"authorization_code"},
 		Scope:        "openid profile",
 		Name:         "PAR Test Client",
 		// 必须是机密客户端才能使用 PAR (通常要求身份验证)
-		IsConfidential:          true,
+		IsConfidentialClient:    true,
 		Secret:                  "test_secret",
 		TokenEndpointAuthMethod: "client_secret_basic",
 	}
 
-	client, err := storage.CreateClient(context.Background(), clientMeta)
+	client, err := storage.ClientCreate(context.Background(), clientMeta)
 	require.NoError(t, err)
 
 	return storage, client, hasher
@@ -194,7 +194,7 @@ func TestPAR_Concurrency_OneTimeUse(t *testing.T) {
 	// 1. 创建一个 PAR Session
 	requestURI := "urn:ietf:params:oauth:request_uri:concurrent-test"
 	req := &oidc.AuthorizeRequest{ClientID: "client-1", State: "state-1"}
-	err := storage.SavePARSession(ctx, requestURI, req, time.Minute)
+	err := storage.PARSessionSave(ctx, requestURI, req, time.Minute)
 	require.NoError(t, err)
 
 	// 2. 并发尝试获取并删除
@@ -226,7 +226,7 @@ func TestLoadPARSession_Expired(t *testing.T) {
 	requestURI := "urn:ietf:params:oauth:request_uri:expired"
 	req := &oidc.AuthorizeRequest{ClientID: "client-1"}
 
-	err := storage.SavePARSession(ctx, requestURI, req, 10*time.Millisecond)
+	err := storage.PARSessionSave(ctx, requestURI, req, 10*time.Millisecond)
 	require.NoError(t, err)
 	time.Sleep(100 * time.Millisecond)
 	_, err = oidc.LoadPARSession(ctx, storage, requestURI)

@@ -54,7 +54,7 @@ func setupAuthorizeTest(t *testing.T) (*oidc.Server, oidc.Storage, oidc.Register
 
 	// 创建一个测试客户端
 	clientID := oidc.BinaryUUID(uuid.New())
-	clientMeta := oidc.ClientMetadata{
+	clientMeta := &oidc.ClientMetadata{
 		ID:           clientID,
 		RedirectURIs: []string{"https://client.example.com/cb"},
 		GrantTypes:   []string{"authorization_code"},
@@ -62,7 +62,7 @@ func setupAuthorizeTest(t *testing.T) (*oidc.Server, oidc.Storage, oidc.Register
 		Name:         "Test Client",
 	}
 
-	client, err := storage.CreateClient(context.Background(), clientMeta)
+	client, err := storage.ClientCreate(context.Background(), clientMeta)
 	require.NoError(t, err)
 
 	return server, storage, client
@@ -200,7 +200,7 @@ func TestRequestAuthorize_PAR(t *testing.T) {
 		CodeChallenge:       "challenge",
 		CodeChallengeMethod: "S256",
 	}
-	err := storage.SavePARSession(ctx, requestURI, parReq, time.Minute)
+	err := storage.PARSessionSave(ctx, requestURI, parReq, time.Minute)
 	require.NoError(t, err)
 
 	// 2. 使用 request_uri 发起请求
@@ -218,7 +218,7 @@ func TestRequestAuthorize_PAR(t *testing.T) {
 	assert.Equal(t, "par-state", req.State)
 
 	// 4. 验证 request_uri 只能使用一次 (Storage 应该删除它)
-	_, err = storage.GetAndDeletePARSession(ctx, requestURI)
+	_, err = storage.PARSessionConsume(ctx, requestURI)
 	assert.Error(t, err, "PAR session should be deleted after use")
 }
 
@@ -257,7 +257,7 @@ func TestResponseAuthorized_Success(t *testing.T) {
 	code := url.Query().Get("code")
 
 	// 验证 Code 是否存在
-	session, err := storage.LoadAndConsumeAuthCode(ctx, code)
+	session, err := storage.AuthCodeConsume(ctx, code)
 	require.NoError(t, err)
 
 	require.NotNil(t, session)
@@ -305,7 +305,7 @@ func TestResponseAuthorized_FinalScope(t *testing.T) {
 	url, err := url.Parse(redirectURL)
 	require.NoError(t, err)
 	code := url.Query().Get("code")
-	session, err := storage.LoadAndConsumeAuthCode(ctx, code)
+	session, err := storage.AuthCodeConsume(ctx, code)
 	require.NoError(t, err)
 	require.NotNil(t, session)
 	assert.Equal(t, "openid profile", session.Scope)

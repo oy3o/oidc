@@ -113,6 +113,11 @@ func ExpiredTokenError(description string) *Error {
 	return NewError("expired_token", description, 400)
 }
 
+// ServerError 创建 server_error 错误 (HTTP 500)
+func ServerError(description string) *Error {
+	return NewError("server_error", description, 500)
+}
+
 // ---------------------------------------------------------------------------
 // OAuth 2.0 / OIDC 标准错误定义
 // 参见: RFC 6749 Section 5.2 & OIDC Core 1.0
@@ -259,6 +264,12 @@ var (
 
 	// ErrInvalidEd25519PublicKeySize 无效的 Ed25519 公钥大小
 	ErrInvalidEd25519PublicKeySize = errors.New("invalid Ed25519 public key size")
+
+	// ErrInvalidJWKType 无效的 JWK 类型
+	ErrInvalidJWKType = errors.New("invalid JWK type")
+
+	// ErrMissingJWKFields 缺少 JWK 字段
+	ErrMissingJWKFields = errors.New("missing JWK fields")
 )
 
 // ---------------------------------------------------------------------------
@@ -337,6 +348,21 @@ var (
 
 	// ErrUnexpectedSigningMethod 意外的签名方法
 	ErrUnexpectedSigningMethod = errors.New("unexpected signing method")
+
+	// ErrHasherNotConfigured Hasher 未配置
+	ErrHasherNotConfigured = errors.New("hasher not configured")
+
+	// ErrInvalidIdentifier 无效的标识符
+	ErrInvalidIdentifier = errors.New("invalid identifier")
+
+	// ErrUserNotConfirmed 用户未确认
+	ErrUserNotConfirmed = errors.New("user not confirmed")
+
+	// ErrUserForbidden 用户被禁用
+	ErrUserForbidden = errors.New("user forbidden")
+
+	// ErrDefaultPassword 使用默认密码
+	ErrDefaultPassword = errors.New("default password")
 )
 
 // ---------------------------------------------------------------------------

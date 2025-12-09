@@ -1,4 +1,4 @@
-package redis
+package cache
 
 import (
 	"context"
@@ -35,7 +35,7 @@ type RedisStorage struct {
 
 var _ oidc.Cache = (*RedisStorage)(nil)
 
-func NewRedisStorage(client *redis.Client, factory oidc.ClientFactory) *RedisStorage {
+func NewRedis(client *redis.Client, factory oidc.ClientFactory) *RedisStorage {
 	return &RedisStorage{
 		client:  client,
 		factory: factory,
@@ -46,8 +46,8 @@ func NewRedisStorage(client *redis.Client, factory oidc.ClientFactory) *RedisSto
 // AuthCodeStorage 实现
 // ---------------------------------------------------------------------------
 
-// SaveAuthCode 存储生成的授权码
-func (r *RedisStorage) SaveAuthCode(ctx context.Context, session *oidc.AuthCodeSession) error {
+// AuthCodeSave 存储生成的授权码
+func (r *RedisStorage) AuthCodeSave(ctx context.Context, session *oidc.AuthCodeSession) error {
 	data, err := sonic.Marshal(session)
 	if err != nil {
 		return fmt.Errorf("failed to marshal auth code session: %w", err)
@@ -63,11 +63,11 @@ func (r *RedisStorage) SaveAuthCode(ctx context.Context, session *oidc.AuthCodeS
 	return r.client.Set(ctx, key, data, ttl).Err()
 }
 
-// LoadAndConsumeAuthCode 原子性地获取并删除授权码（一次性使用）
-func (r *RedisStorage) LoadAndConsumeAuthCode(ctx context.Context, code string) (*oidc.AuthCodeSession, error) {
+// AuthCodeConsume 原子性地获取并删除授权码（一次性使用）
+func (r *RedisStorage) AuthCodeConsume(ctx context.Context, code string) (*oidc.AuthCodeSession, error) {
 	key := prefixAuthCode + code
 
-	// 使用 Lua 脚本保证 Get 和 Del 的原子性
+	// 使用 Lua 脚本保证 JWKGet 和 Del 的原子性
 	// 脚本逻辑：获取值，如果存在则删除，返回获取到的值
 	script := redis.NewScript(`
 		local val = redis.call("GET", KEYS[1])
@@ -106,8 +106,8 @@ func (r *RedisStorage) LoadAndConsumeAuthCode(ctx context.Context, code string) 
 // DeviceCodeStorage 实现
 // ---------------------------------------------------------------------------
 
-// SaveDeviceCode 存储设备码 session
-func (r *RedisStorage) SaveDeviceCode(ctx context.Context, session *oidc.DeviceCodeSession) error {
+// DeviceCodeSave 存储设备码 session
+func (r *RedisStorage) DeviceCodeSave(ctx context.Context, session *oidc.DeviceCodeSession) error {
 	data, err := sonic.Marshal(session)
 	if err != nil {
 		return err
@@ -126,8 +126,8 @@ func (r *RedisStorage) SaveDeviceCode(ctx context.Context, session *oidc.DeviceC
 	return err
 }
 
-// GetDeviceCodeSession 获取会话
-func (r *RedisStorage) GetDeviceCodeSession(ctx context.Context, deviceCode string) (*oidc.DeviceCodeSession, error) {
+// DeviceCodeGet 获取会话
+func (r *RedisStorage) DeviceCodeGet(ctx context.Context, deviceCode string) (*oidc.DeviceCodeSession, error) {
 	val, err := r.client.Get(ctx, prefixDeviceCode+deviceCode).Result()
 	if err == redis.Nil {
 		return nil, oidc.ErrTokenNotFound // 或者专门的 ErrDeviceCodeNotFound
@@ -143,8 +143,8 @@ func (r *RedisStorage) GetDeviceCodeSession(ctx context.Context, deviceCode stri
 	return &session, nil
 }
 
-// GetDeviceCodeSessionByUserCode 通过 UserCode 查找
-func (r *RedisStorage) GetDeviceCodeSessionByUserCode(ctx context.Context, userCode string) (*oidc.DeviceCodeSession, error) {
+// DeviceCodeGetByUserCode 通过 UserCode 查找
+func (r *RedisStorage) DeviceCodeGetByUserCode(ctx context.Context, userCode string) (*oidc.DeviceCodeSession, error) {
 	// 1. 先查映射
 	deviceCode, err := r.client.Get(ctx, prefixUserCode+userCode).Result()
 	if err == redis.Nil {
@@ -155,12 +155,12 @@ func (r *RedisStorage) GetDeviceCodeSessionByUserCode(ctx context.Context, userC
 	}
 
 	// 2. 再查 Session
-	return r.GetDeviceCodeSession(ctx, deviceCode)
+	return r.DeviceCodeGet(ctx, deviceCode)
 }
 
-// UpdateDeviceCodeSession 更新状态 (例如改为 Allowed，并绑定用户)
-func (r *RedisStorage) UpdateDeviceCodeSession(ctx context.Context, deviceCode string, session *oidc.DeviceCodeSession) error {
-	// 复用 Save 逻辑覆盖即可，因为 Redis Set 是覆盖操作
+// DeviceCodeUpdate 更新状态 (例如改为 Allowed，并绑定用户)
+func (r *RedisStorage) DeviceCodeUpdate(ctx context.Context, deviceCode string, session *oidc.DeviceCodeSession) error {
+	// 复用 JWKSave 逻辑覆盖即可，因为 Redis Set 是覆盖操作
 	// 注意：UserCode 的映射不需要变
 
 	// 为了数据一致性，通常只更新 DeviceCode 对应的 Key
@@ -176,11 +176,11 @@ func (r *RedisStorage) UpdateDeviceCodeSession(ctx context.Context, deviceCode s
 	}).Err()
 }
 
-// RemoveDeviceCodeSession 删除设备码会话
-func (r *RedisStorage) RemoveDeviceCodeSession(ctx context.Context, deviceCode string) error {
+// DeviceCodeDelete 删除设备码会话
+func (r *RedisStorage) DeviceCodeDelete(ctx context.Context, deviceCode string) error {
 	// 1. 先获取 Session 以拿到 UserCode (为了删除索引)
-	// 如果 Session 已经过期或不存在，Get 会报错，我们忽略错误直接返回即可
-	session, err := r.GetDeviceCodeSession(ctx, deviceCode)
+	// 如果 Session 已经过期或不存在，JWKGet 会报错，我们忽略错误直接返回即可
+	session, err := r.DeviceCodeGet(ctx, deviceCode)
 	if err != nil {
 		return nil // 已经不存在了，视为成功
 	}
@@ -219,8 +219,8 @@ type internalPARSession struct {
 	ExpiresAt time.Time              `json:"exp"`
 }
 
-// SavePARSession 保存 PAR 会话
-func (r *RedisStorage) SavePARSession(ctx context.Context, requestURI string, req *oidc.AuthorizeRequest, ttl time.Duration) error {
+// PARSessionSave 保存 PAR 会话
+func (r *RedisStorage) PARSessionSave(ctx context.Context, requestURI string, req *oidc.AuthorizeRequest, ttl time.Duration) error {
 	if ttl <= 0 {
 		return fmt.Errorf("invalid ttl: %v", ttl)
 	}
@@ -236,8 +236,8 @@ func (r *RedisStorage) SavePARSession(ctx context.Context, requestURI string, re
 	return r.client.Set(ctx, key, reqJSON, ttl).Err()
 }
 
-// GetAndDeletePARSession 获取并删除 PAR 会话（原子操作）
-func (r *RedisStorage) GetAndDeletePARSession(ctx context.Context, requestURI string) (*oidc.AuthorizeRequest, error) {
+// PARSessionConsume 获取并删除 PAR 会话（原子操作）
+func (r *RedisStorage) PARSessionConsume(ctx context.Context, requestURI string) (*oidc.AuthorizeRequest, error) {
 	key := prefixPAR + requestURI
 
 	// 使用 Lua 脚本实现原子性: GET + DEL
@@ -304,8 +304,8 @@ func (r *RedisStorage) CheckAndStore(ctx context.Context, jti string, ttl time.D
 // RevocationStorage (Access Token Blacklist) 实现
 // ---------------------------------------------------------------------------
 
-// Revoke 加入黑名单
-func (r *RedisStorage) Revoke(ctx context.Context, jti string, expiration time.Time) error {
+// AccessTokenRevoke 加入黑名单
+func (r *RedisStorage) AccessTokenRevoke(ctx context.Context, jti string, expiration time.Time) error {
 	key := prefixRevocation + jti
 	ttl := time.Until(expiration)
 	if ttl <= 0 {
@@ -315,8 +315,8 @@ func (r *RedisStorage) Revoke(ctx context.Context, jti string, expiration time.T
 	return r.client.Set(ctx, key, "revoked", ttl).Err()
 }
 
-// IsRevoked 检查是否在黑名单
-func (r *RedisStorage) IsRevoked(ctx context.Context, jti string) (bool, error) {
+// AccessTokenIsRevoked 检查是否在黑名单
+func (r *RedisStorage) AccessTokenIsRevoked(ctx context.Context, jti string) (bool, error) {
 	key := prefixRevocation + jti
 	exists, err := r.client.Exists(ctx, key).Result()
 	if err != nil {
@@ -331,21 +331,21 @@ func (r *RedisStorage) IsRevoked(ctx context.Context, jti string) (bool, error) 
 
 const prefixRotatingToken = "oidc:rt:rotating:"
 
-// MarkRefreshTokenAsRotating 标记旧 Token 进入宽限期
+// RefreshTokenMarkRotating 标记旧 Token 进入宽限期
 // 在宽限期内，旧 Token 仍可刷新（但仅一次）
 //
 // 实现策略：
 // - 在 Redis 中创建一个临时 key: oidc:rt:rotating:<tokenID>
 // - TTL 设置为 gracePeriod (通常 30 秒)
 // - 值可以是任意非空值（我们只关心 key 的存在性）
-func (r *RedisStorage) MarkRefreshTokenAsRotating(ctx context.Context, tokenID oidc.Hash256, gracePeriod time.Duration) error {
+func (r *RedisStorage) RefreshTokenMarkRotating(ctx context.Context, tokenID oidc.Hash256, gracePeriod time.Duration) error {
 	key := prefixRotatingToken + tokenID.String()
 	return r.client.Set(ctx, key, "1", gracePeriod).Err()
 }
 
-// IsInGracePeriod 检查 Token 是否在宽限期内
+// RefreshTokenInGracePeriod 检查 Token 是否在宽限期内
 // 返回 true 表示可以允许一次重试刷新
-func (r *RedisStorage) IsInGracePeriod(ctx context.Context, tokenID oidc.Hash256) (bool, error) {
+func (r *RedisStorage) RefreshTokenInGracePeriod(ctx context.Context, tokenID oidc.Hash256) (bool, error) {
 	key := prefixRotatingToken + tokenID.String()
 	exists, err := r.client.Exists(ctx, key).Result()
 	if err != nil {
@@ -358,8 +358,8 @@ func (r *RedisStorage) IsInGracePeriod(ctx context.Context, tokenID oidc.Hash256
 // KeyStorage Implementation
 // ---------------------------------------------------------------------------
 
-// Save 存储 JWK
-func (r *RedisStorage) Save(ctx context.Context, key jwk.Key) error {
+// JWKSave 存储 JWK
+func (r *RedisStorage) JWKSave(ctx context.Context, key jwk.Key) error {
 	if key.KeyID() == "" {
 		return errors.New("key must have a kid")
 	}
@@ -375,8 +375,8 @@ func (r *RedisStorage) Save(ctx context.Context, key jwk.Key) error {
 	return r.client.Set(ctx, redisKey, data, 0).Err()
 }
 
-// Get 获取 JWK
-func (r *RedisStorage) Get(ctx context.Context, kid string) (jwk.Key, error) {
+// JWKGet 获取 JWK
+func (r *RedisStorage) JWKGet(ctx context.Context, kid string) (jwk.Key, error) {
 	redisKey := prefixKey + kid
 	val, err := r.client.Get(ctx, redisKey).Result()
 	if err == redis.Nil {
@@ -393,8 +393,8 @@ func (r *RedisStorage) Get(ctx context.Context, kid string) (jwk.Key, error) {
 	return key, nil
 }
 
-// List 获取所有 JWK
-func (r *RedisStorage) List(ctx context.Context) ([]jwk.Key, error) {
+// JWKList 获取所有 JWK
+func (r *RedisStorage) JWKList(ctx context.Context) ([]jwk.Key, error) {
 	var keys []jwk.Key
 	var cursor uint64
 
@@ -439,19 +439,19 @@ func (r *RedisStorage) List(ctx context.Context) ([]jwk.Key, error) {
 	return keys, nil
 }
 
-// Delete 删除 JWK
-func (r *RedisStorage) Delete(ctx context.Context, kid string) error {
+// JWKDelete 删除 JWK
+func (r *RedisStorage) JWKDelete(ctx context.Context, kid string) error {
 	redisKey := prefixKey + kid
 	return r.client.Del(ctx, redisKey).Err()
 }
 
-// SaveSigningKeyID 存储当前签名密钥 ID
-func (r *RedisStorage) SaveSigningKeyID(ctx context.Context, kid string) error {
+// JWKMarkSigning 存储当前签名密钥 ID
+func (r *RedisStorage) JWKMarkSigning(ctx context.Context, kid string) error {
 	return r.client.Set(ctx, prefixSigningKey, kid, 0).Err()
 }
 
-// GetSigningKeyID 获取当前签名密钥 ID
-func (r *RedisStorage) GetSigningKeyID(ctx context.Context) (string, error) {
+// JWKGetSigning 获取当前签名密钥 ID
+func (r *RedisStorage) JWKGetSigning(ctx context.Context) (string, error) {
 	val, err := r.client.Get(ctx, prefixSigningKey).Result()
 	if err == redis.Nil {
 		return "", oidc.ErrKeyNotFound
@@ -468,7 +468,7 @@ func (r *RedisStorage) GetSigningKeyID(ctx context.Context) (string, error) {
 
 const prefixClient = "oidc:client:"
 
-func (r *RedisStorage) GetClient(ctx context.Context, clientID oidc.BinaryUUID) (oidc.RegisteredClient, error) {
+func (r *RedisStorage) ClientFindByID(ctx context.Context, clientID oidc.BinaryUUID) (oidc.RegisteredClient, error) {
 	key := prefixClient + clientID.String()
 	clientStr, err := r.client.Get(ctx, key).Result()
 	if err == redis.Nil {
@@ -484,7 +484,7 @@ func (r *RedisStorage) GetClient(ctx context.Context, clientID oidc.BinaryUUID) 
 	return client, nil
 }
 
-func (r *RedisStorage) SaveClient(ctx context.Context, client oidc.RegisteredClient, ttl time.Duration) error {
+func (r *RedisStorage) ClientCache(ctx context.Context, client oidc.RegisteredClient, ttl time.Duration) error {
 	data, err := client.Serialize()
 	if err != nil {
 		return fmt.Errorf("failed to serialize client: %w", err)
@@ -493,7 +493,7 @@ func (r *RedisStorage) SaveClient(ctx context.Context, client oidc.RegisteredCli
 	return r.client.Set(ctx, key, data, ttl).Err()
 }
 
-func (r *RedisStorage) InvalidateClient(ctx context.Context, clientID oidc.BinaryUUID) error {
+func (r *RedisStorage) ClientInvalidate(ctx context.Context, clientID oidc.BinaryUUID) error {
 	key := prefixClient + clientID.String()
 	return r.client.Del(ctx, key).Err()
 }
@@ -502,7 +502,7 @@ func (r *RedisStorage) InvalidateClient(ctx context.Context, clientID oidc.Binar
 // TokenCache Implementation
 // ---------------------------------------------------------------------------
 
-func (r *RedisStorage) GetRefreshToken(ctx context.Context, tokenID oidc.Hash256) (*oidc.RefreshTokenSession, error) {
+func (r *RedisStorage) RefreshTokenGet(ctx context.Context, tokenID oidc.Hash256) (*oidc.RefreshTokenSession, error) {
 	key := prefixRefreshToken + tokenID.String()
 	val, err := r.client.Get(ctx, key).Result()
 	if err == redis.Nil {
@@ -519,7 +519,7 @@ func (r *RedisStorage) GetRefreshToken(ctx context.Context, tokenID oidc.Hash256
 	return &session, nil
 }
 
-func (r *RedisStorage) SaveRefreshToken(ctx context.Context, session *oidc.RefreshTokenSession, ttl time.Duration) error {
+func (r *RedisStorage) RefreshTokenCache(ctx context.Context, session *oidc.RefreshTokenSession, ttl time.Duration) error {
 	data, err := sonic.Marshal(session)
 	if err != nil {
 		return fmt.Errorf("failed to marshal refresh token: %w", err)
@@ -528,12 +528,12 @@ func (r *RedisStorage) SaveRefreshToken(ctx context.Context, session *oidc.Refre
 	return r.client.Set(ctx, key, data, ttl).Err()
 }
 
-func (r *RedisStorage) InvalidateRefreshToken(ctx context.Context, tokenID oidc.Hash256) error {
+func (r *RedisStorage) RefreshTokenInvalidate(ctx context.Context, tokenID oidc.Hash256) error {
 	key := prefixRefreshToken + tokenID.String()
 	return r.client.Del(ctx, key).Err()
 }
 
-func (r *RedisStorage) InvalidateRefreshTokens(ctx context.Context, tokenIDs []oidc.Hash256) error {
+func (r *RedisStorage) RefreshTokensInvalidate(ctx context.Context, tokenIDs []oidc.Hash256) error {
 	if len(tokenIDs) == 0 {
 		return nil
 	}

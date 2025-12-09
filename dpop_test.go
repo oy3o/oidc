@@ -284,3 +284,57 @@ func TestBuildDPoPBoundAccessTokenURI(t *testing.T) {
 		assert.Equal(t, tt.expected, got)
 	}
 }
+
+// -----------------------------------------------------------------------------
+// Security Tests
+// -----------------------------------------------------------------------------
+
+type mockReplayCache struct{}
+
+func (m *mockReplayCache) CheckAndStore(ctx context.Context, jti string, ttl time.Duration) (bool, error) {
+	return false, nil
+}
+
+func TestVerifyDPoPProof_RejectsSymmetricKeys(t *testing.T) {
+	ctx := context.Background()
+	// Use a mock cache to avoid DB dependency for this unit test
+	mockCache := &mockReplayCache{}
+
+	htm := "POST"
+	htu := "https://server.example.com/token"
+	jti := uuid.New().String()
+
+	// Symmetric Key (HMAC)
+	secret := []byte("secret-key-must-be-long-enough-for-hs256")
+
+	// Construct JWK for the symmetric key
+	jwkMap := map[string]interface{}{
+		"kty": "oct",
+		"k":   "c2VjcmV0LWtleS1tdXN0LWJlLWxvbmctZW5vdWdoLWZvci1oczI1Ng", // Base64URL encoded secret
+	}
+
+	claims := jwt.MapClaims{
+		"htm": htm,
+		"htu": htu,
+		"iat": time.Now().Unix(),
+		"jti": jti,
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	token.Header["typ"] = "dpop+jwt"
+	token.Header["jwk"] = jwkMap
+
+	// Sign using the secret
+	proof, err := token.SignedString(secret)
+	require.NoError(t, err)
+
+	req := httptest.NewRequest(htm, htu, nil)
+	req.Header.Set("DPoP", proof)
+
+	_, err = oidc.VerifyDPoPProof(ctx, req, nil, mockCache, htm, htu)
+
+	assert.Error(t, err)
+	if err != nil {
+		assert.Contains(t, err.Error(), "symmetric keys (oct) are not allowed")
+	}
+}

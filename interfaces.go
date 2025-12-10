@@ -489,6 +489,7 @@ type Persistence interface {
 	// 建议由后台 Worker 定期调用（例如每小时一次）
 	// 返回被清理的记录数和错误
 	Cleanup(ctx context.Context) (deleted int64, err error)
+	Close()
 }
 
 // Cache 负责临时、高频、需要自动过期的数据

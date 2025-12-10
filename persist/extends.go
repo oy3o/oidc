@@ -6,13 +6,6 @@ import (
 	"github.com/oy3o/oidc"
 )
 
-// SystemStorage 处理数据库层面的维护任务
-type SystemStorage interface {
-	Close()
-	// Cleanup 清理过期数据（如过期的令牌、会话等）
-	Cleanup(ctx context.Context) (rowsAffected int64, err error)
-}
-
 // UserManager 处理核心用户实体的生命周期
 type UserManager interface {
 	// UserCreate 创建完整用户聚合根（包含凭证和资料）
@@ -44,7 +37,6 @@ type ProfileManager interface {
 
 // Persistence 包含完整的身份管理能力。
 type Persistence interface {
-	SystemStorage
 	UserManager
 	CredentialManager
 	ProfileManager

@@ -109,3 +109,32 @@ func (s *PgxStorage) RefreshTokenRevokeUser(ctx context.Context, userID oidc.Bin
 
 	return ids, nil
 }
+
+func (s *PgxStorage) RefreshTokenListByUser(ctx context.Context, userID oidc.BinaryUUID) ([]*oidc.RefreshTokenSession, error) {
+	query, args, err := psql.Select("*").
+		From("oidc_refresh_tokens").
+		Where(map[string]interface{}{"user_id": userID}).
+		ToSql()
+	if err != nil {
+		return nil, err
+	}
+
+	var sessions []*oidc.RefreshTokenSession
+	if err := pgxscan.Select(ctx, s.db, &sessions, query, args...); err != nil {
+		return nil, err
+	}
+
+	// Filter out expired tokens lazily or return them and let caller decide?
+	// Usually invalid/expired tokens should not be listed as active sessions.
+	// But revocation might want to see them.
+	// Let's filter here for "Active" sessions definition.
+	activeSessions := make([]*oidc.RefreshTokenSession, 0, len(sessions))
+	now := time.Now()
+	for _, session := range sessions {
+		if session.ExpiresAt.After(now) {
+			activeSessions = append(activeSessions, session)
+		}
+	}
+
+	return activeSessions, nil
+}

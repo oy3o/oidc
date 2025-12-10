@@ -350,6 +350,9 @@ type TokenStorage interface {
 
 	// RefreshTokenRevokeUser 撤销指定用户的所有令牌 (例如用户登出或修改密码时)。
 	RefreshTokenRevokeUser(ctx context.Context, userID BinaryUUID) ([]Hash256, error)
+
+	// RefreshTokenListByUser 列出指定用户的所有活跃令牌。
+	RefreshTokenListByUser(ctx context.Context, userID BinaryUUID) ([]*RefreshTokenSession, error)
 }
 
 // TokenCache 定义了 Refresh Token 的缓存接口

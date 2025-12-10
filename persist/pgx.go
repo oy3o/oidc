@@ -25,7 +25,10 @@ type PgxStorage struct {
 }
 
 // 确保 Storage 实现了 oidc.Persistence 接口
-var _ oidc.Persistence = (*PgxStorage)(nil)
+var (
+	_ oidc.Persistence = (*PgxStorage)(nil)
+	_ Persistence      = (*PgxStorage)(nil)
+)
 
 // New 创建一个新的 Storage 实例。
 // db: 必须是一个已经连接好的 pgx 连接池。

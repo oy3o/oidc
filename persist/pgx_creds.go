@@ -8,52 +8,6 @@ import (
 	"github.com/oy3o/oidc"
 )
 
-// CredentialType 使用 string 枚举，数据库存 varchar
-type CredentialType string
-
-const (
-	CredentialTypePassword CredentialType = "password" // 用于存密码Hash，Identifier是id
-	CredentialTypeEmail    CredentialType = "email"    // 仅用于标识邮箱登录（无密码，Magic Link）
-	CredentialTypePhone    CredentialType = "phone"    // 手机验证码登录（无密码，Magic Link）
-	CredentialTypeWebAuthn CredentialType = "webauthn" // Passkeys / FIDO2
-)
-
-type Credential struct {
-	// 1. 物理主键 (自增 ID)
-	// 虽然业务上很少用 ID 查询 Credential，但作为 GORM 模型需要一个主键
-	ID uint64 `db:"id"`
-
-	// 2. 外键关联
-	// 关联到 User 表，必须加索引以快速查找某用户的所有凭证
-	UserID oidc.BinaryUUID `db:"user_id"`
-
-	// 3. 核心认证信息 (复合唯一索引)
-	// 语义：在某种认证类型下，标识符必须唯一。
-	// 索引名: idx_cred_type_identifier (自定义索引名)
-	// Type: 凭证类型 (password, google, email...)
-	Type CredentialType `db:"type"`
-
-	// Identifier: 唯一标识 (username, email, phone number, openid_sub)
-	Identifier string `db:"identifier"`
-
-	// 4. 密钥/凭证数据
-	// 密码存 Hash，OAuth 存 Token。
-	// 建议 SecretBytes 实现 GormDataTypeInterface 返回 "bytea" 或 "blob"
-	// 或者直接使用 string 存储 hex/base64 编码后的数据
-	Secret oidc.SecretBytes `db:"secret"`
-
-	// 5. 状态与审计
-	// Verified: 对于 Email/Phone 类型很重要
-	Verified bool `db:"verified"`
-
-	CreatedAt time.Time `db:"created_at"`
-	UpdatedAt time.Time `db:"updated_at"`
-}
-
-func (Credential) TableName() string {
-	return "credentials"
-}
-
 // UserUpdatePassword 原子性更新用户的所有密码凭证
 func (s *PgxStorage) UserUpdatePassword(ctx context.Context, userID oidc.BinaryUUID, newHashedPassword oidc.SecretBytes) error {
 	query, args, err := psql.Update("credentials").

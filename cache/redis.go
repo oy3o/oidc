@@ -170,7 +170,7 @@ func (r *RedisStorage) JWKGetSigning(ctx context.Context) (string, error) {
 // ClientSave Implementation
 // ---------------------------------------------------------------------------
 
-func (r *RedisStorage) ClientFindByID(ctx context.Context, clientID oidc.BinaryUUID) (oidc.RegisteredClient, error) {
+func (r *RedisStorage) ClientGetByID(ctx context.Context, clientID oidc.BinaryUUID) (oidc.RegisteredClient, error) {
 	key := prefixClient + clientID.String()
 	clientStr, err := r.client.Get(ctx, key).Result()
 	if err == redis.Nil {

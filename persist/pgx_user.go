@@ -100,7 +100,7 @@ func (s *PgxStorage) UserDelete(ctx context.Context, id oidc.BinaryUUID) error {
 	return nil
 }
 
-func (s *PgxStorage) UserFindByID(ctx context.Context, id oidc.BinaryUUID) (*User, error) {
+func (s *PgxStorage) UserGetByID(ctx context.Context, id oidc.BinaryUUID) (*User, error) {
 	var user User
 	query, args, err := psql.Select("*").From("users").Where(map[string]interface{}{"id": id}).ToSql()
 	if err != nil {
@@ -136,7 +136,7 @@ func (s *PgxStorage) UserUpdateStatus(ctx context.Context, id oidc.BinaryUUID, s
 
 // --- Profile Methods ---
 
-func (s *PgxStorage) ProfileFindByUserID(ctx context.Context, userID oidc.BinaryUUID) (*Profile, error) {
+func (s *PgxStorage) ProfileGetByUserID(ctx context.Context, userID oidc.BinaryUUID) (*Profile, error) {
 	var profile Profile
 	query, args, err := psql.Select("*").From("profiles").Where(map[string]interface{}{"user_id": userID}).ToSql()
 	if err != nil {
@@ -199,7 +199,7 @@ func (s *PgxStorage) ProfileUpdate(ctx context.Context, profile *Profile) error 
 // --- UserInfo Methods ---
 
 func (s *PgxStorage) UserGetInfoByID(ctx context.Context, userID oidc.BinaryUUID, scopes []string) (*oidc.UserInfo, error) {
-	profile, err := s.ProfileFindByUserID(ctx, userID)
+	profile, err := s.ProfileGetByUserID(ctx, userID)
 	if err != nil {
 		return nil, err
 	}

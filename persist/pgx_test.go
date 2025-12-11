@@ -167,13 +167,13 @@ func TestUserLifecycle(t *testing.T) {
 	uid = user.ID
 
 	// 2. Find User
-	gotUser, err := storage.UserFindByID(ctx, uid)
+	gotUser, err := storage.UserGetByID(ctx, uid)
 	require.NoError(t, err)
 	assert.Equal(t, user.ID, gotUser.ID)
 	assert.Equal(t, user.Status, gotUser.Status)
 
 	// 3. Find Profile
-	gotProfile, err := storage.ProfileFindByUserID(ctx, uid)
+	gotProfile, err := storage.ProfileGetByUserID(ctx, uid)
 	require.NoError(t, err)
 	assert.Equal(t, "Test User", gotProfile.Name)
 	assert.Equal(t, "test@example.com", *gotProfile.Email)
@@ -181,7 +181,7 @@ func TestUserLifecycle(t *testing.T) {
 	// 4. Update User Status
 	err = storage.UserUpdateStatus(ctx, uid, StatusSuspended)
 	require.NoError(t, err)
-	gotUser, err = storage.UserFindByID(ctx, uid)
+	gotUser, err = storage.UserGetByID(ctx, uid)
 	require.NoError(t, err)
 	assert.Equal(t, StatusSuspended, gotUser.Status)
 
@@ -190,7 +190,7 @@ func TestUserLifecycle(t *testing.T) {
 	gotProfile.Email = &newEmail
 	err = storage.ProfileUpdate(ctx, gotProfile)
 	require.NoError(t, err)
-	gotProfile, err = storage.ProfileFindByUserID(ctx, uid)
+	gotProfile, err = storage.ProfileGetByUserID(ctx, uid)
 	require.NoError(t, err)
 	assert.Equal(t, newEmail, *gotProfile.Email)
 
@@ -198,7 +198,7 @@ func TestUserLifecycle(t *testing.T) {
 	err = storage.UserDelete(ctx, uid)
 	require.NoError(t, err)
 
-	_, err = storage.UserFindByID(ctx, uid)
+	_, err = storage.UserGetByID(ctx, uid)
 	assert.ErrorIs(t, err, ErrUserNotFound)
 }
 
@@ -227,7 +227,7 @@ func TestCredentialLifecycle(t *testing.T) {
 	assert.NotZero(t, cred.ID)
 
 	// 2. Find by Identifier
-	gotCred, err := storage.CredentialFindByIdentifier(ctx, CredentialTypePassword, "testuser")
+	gotCred, err := storage.CredentialGetByIdentifier(ctx, CredentialTypePassword, "testuser")
 	require.NoError(t, err)
 	assert.Equal(t, cred.UserID, gotCred.UserID)
 	assert.Equal(t, cred.Secret, gotCred.Secret)
@@ -236,14 +236,14 @@ func TestCredentialLifecycle(t *testing.T) {
 	cred.Secret = []byte("new_secret")
 	err = storage.CredentialUpdate(ctx, cred)
 	require.NoError(t, err)
-	gotCred, err = storage.CredentialFindByIdentifier(ctx, CredentialTypePassword, "testuser")
+	gotCred, err = storage.CredentialGetByIdentifier(ctx, CredentialTypePassword, "testuser")
 	require.NoError(t, err)
 	assert.Equal(t, oidc.SecretBytes("new_secret"), gotCred.Secret)
 
 	// 4. Delete Credential
 	err = storage.CredentialDeleteByID(ctx, cred.ID)
 	require.NoError(t, err)
-	_, err = storage.CredentialFindByIdentifier(ctx, CredentialTypePassword, "testuser")
+	_, err = storage.CredentialGetByIdentifier(ctx, CredentialTypePassword, "testuser")
 	assert.ErrorIs(t, err, ErrCredentialNotFound)
 }
 
@@ -271,7 +271,7 @@ func TestClientLifecycle(t *testing.T) {
 	assert.Equal(t, clientID, created.GetID())
 
 	// 2. Find Client
-	gotClient, err := p.ClientFindByID(ctx, clientID)
+	gotClient, err := p.ClientGetByID(ctx, clientID)
 	require.NoError(t, err)
 	assert.Equal(t, "Test Client", gotClient.(*oidc.ClientMetadata).Name)
 
@@ -289,7 +289,7 @@ func TestClientLifecycle(t *testing.T) {
 	// 5. Delete Client
 	err = p.ClientDeleteByID(ctx, clientID)
 	require.NoError(t, err)
-	_, err = p.ClientFindByID(ctx, clientID)
+	_, err = p.ClientGetByID(ctx, clientID)
 	assert.ErrorIs(t, err, oidc.ErrClientNotFound)
 }
 

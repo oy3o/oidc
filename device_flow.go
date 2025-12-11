@@ -44,7 +44,7 @@ func DeviceAuthorization(ctx context.Context, storage Storage, issuer string, re
 	if err != nil {
 		return nil, fmt.Errorf("%w: invalid client_id", ErrInvalidRequest)
 	}
-	client, err := storage.ClientFindByID(ctx, clientIDRaw)
+	client, err := storage.ClientGetByID(ctx, clientIDRaw)
 	if err != nil {
 		return nil, fmt.Errorf("%w: invalid client", ErrInvalidClient)
 	}

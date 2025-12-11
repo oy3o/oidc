@@ -37,16 +37,16 @@ var _ Storage = (*TieredStorage)(nil)
 // ClientStorage Implementation (Read-Through / Write-Through)
 // ---------------------------------------------------------------------------
 
-func (s *TieredStorage) ClientFindByID(ctx context.Context, clientID BinaryUUID) (RegisteredClient, error) {
+func (s *TieredStorage) ClientGetByID(ctx context.Context, clientID BinaryUUID) (RegisteredClient, error) {
 	// 1. Try Cache (Read-Through)
-	client, err := s.Cache.ClientFindByID(ctx, clientID)
+	client, err := s.Cache.ClientGetByID(ctx, clientID)
 	if err == nil {
 		return client, nil
 	}
 	// Ignore cache miss/error, proceed to DB
 
 	// 2. Fetch from DB
-	client, err = s.Persistence.ClientFindByID(ctx, clientID)
+	client, err = s.Persistence.ClientGetByID(ctx, clientID)
 	if err != nil {
 		return nil, err
 	}

@@ -50,7 +50,7 @@ func AuthenticateClient(ctx context.Context, storage ClientStorage, clientIDStr,
 		return nil, fmt.Errorf("%w: invalid client_id", ErrInvalidRequest)
 	}
 
-	client, err := storage.ClientFindByID(ctx, clientID)
+	client, err := storage.ClientGetByID(ctx, clientID)
 	if err != nil {
 		if errors.Is(err, ErrClientNotFound) {
 			return nil, fmt.Errorf("%w: invalid client", ErrInvalidClient)

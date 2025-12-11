@@ -168,7 +168,7 @@ func ClientUpdate(ctx context.Context, storage ClientStorage, req *ClientUpdateR
 	}
 
 	// 1. 获取现有客户端 (确保存在)
-	_, err = storage.ClientFindByID(ctx, clientID)
+	_, err = storage.ClientGetByID(ctx, clientID)
 	if err != nil {
 		return nil, err
 	}

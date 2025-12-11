@@ -158,7 +158,7 @@ func (s *PgxStorage) AuthenticateByPassword(ctx context.Context, identifier, pas
 	}
 
 	// 2. 查询凭证
-	cred, err := s.CredentialFindByIdentifier(ctx, credType, identifier)
+	cred, err := s.CredentialGetByIdentifier(ctx, credType, identifier)
 	if err != nil {
 		return oidc.BinaryUUID(uuid.Nil), err
 	}
@@ -202,7 +202,7 @@ func AuthenticateByPassword(ctx context.Context, s *PgxStorage, issuer *oidc.Iss
 	}
 
 	// 2. 获取用户
-	user, err := s.UserFindByID(ctx, userID)
+	user, err := s.UserGetByID(ctx, userID)
 	if err != nil {
 		return nil, err
 	}

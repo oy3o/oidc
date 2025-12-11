@@ -75,7 +75,7 @@ func RequestAuthorize(ctx context.Context, storage Storage, req *AuthorizeReques
 		return nil, fmt.Errorf("%w: invalid client_id", ErrInvalidRequest)
 	}
 	// 1. 验证 Client ID
-	client, err := storage.ClientFindByID(ctx, clientID)
+	client, err := storage.ClientGetByID(ctx, clientID)
 	// [安全] 即使客户端未找到，我们也不立即返回，而是继续后续验证，以防止客户端ID枚举攻击。
 	if err != nil && !errors.Is(err, ErrClientNotFound) {
 		return nil, err

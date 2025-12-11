@@ -52,7 +52,7 @@ func NewTestStorage(t *testing.T) (*oidc.TieredStorage, *miniredis.Miniredis) {
 	return oidc.NewTieredStorage(NewTestDB(t), rdb), s
 }
 
-func TestTieredStorage_ClientFindByID(t *testing.T) {
+func TestTieredStorage_ClientGetByID(t *testing.T) {
 	cache, _ := NewTestCache(t)
 	db := NewTestDB(t)
 	storage := oidc.NewTieredStorage(db, cache)
@@ -70,21 +70,21 @@ func TestTieredStorage_ClientFindByID(t *testing.T) {
 	_, err := db.ClientCreate(ctx, clientMeta)
 	assert.NoError(t, err)
 
-	// 2. Test: ClientFindByID should hit DB and populate Cache
-	client, err := storage.ClientFindByID(ctx, clientID)
+	// 2. Test: ClientGetByID should hit DB and populate Cache
+	client, err := storage.ClientGetByID(ctx, clientID)
 	assert.NoError(t, err)
 	assert.NotNil(t, client)
 	assert.Equal(t, clientID, client.GetID())
 
 	// Verify Cache is populated
-	cachedClient, err := cache.ClientFindByID(ctx, clientID)
-	// Note: MockStorage.ClientFindByID might return ErrClientNotFound if ClientCache didn't work as expected
+	cachedClient, err := cache.ClientGetByID(ctx, clientID)
+	// Note: MockStorage.ClientGetByID might return ErrClientNotFound if ClientCache didn't work as expected
 	// (we implemented ClientCache in MockStorage to store in map)
 	assert.NoError(t, err)
 	assert.NotNil(t, cachedClient)
 	assert.Equal(t, clientID, cachedClient.GetID())
 
-	// 3. Test: ClientFindByID from Cache
+	// 3. Test: ClientGetByID from Cache
 	// Modify DB to ensure we are reading from Cache
 	// (In a real mock, we could clear DB, but here we can just modify the cached object if it's a pointer,
 	// but MockStorage stores pointers. Let's modify the cached object directly via cache interface if possible,
@@ -94,7 +94,7 @@ func TestTieredStorage_ClientFindByID(t *testing.T) {
 	err = db.ClientDeleteByID(ctx, clientID)
 	assert.NoError(t, err)
 
-	clientFromCache, err := storage.ClientFindByID(ctx, clientID)
+	clientFromCache, err := storage.ClientGetByID(ctx, clientID)
 	assert.NoError(t, err)
 	assert.NotNil(t, clientFromCache)
 	assert.Equal(t, clientID, clientFromCache.GetID())
@@ -116,12 +116,12 @@ func TestTieredStorage_ClientCreate(t *testing.T) {
 	assert.NoError(t, err)
 
 	// 2. Verify DB
-	dbClient, err := db.ClientFindByID(ctx, clientID)
+	dbClient, err := db.ClientGetByID(ctx, clientID)
 	assert.NoError(t, err)
 	assert.NotNil(t, dbClient)
 
 	// 3. Verify Cache (Write-Through)
-	cacheClient, err := cache.ClientFindByID(ctx, clientID)
+	cacheClient, err := cache.ClientGetByID(ctx, clientID)
 	assert.NoError(t, err)
 	assert.NotNil(t, cacheClient)
 }
@@ -141,11 +141,11 @@ func TestTieredStorage_ClientDeleteByID(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Verify DB deleted
-	_, err = db.ClientFindByID(ctx, clientID)
+	_, err = db.ClientGetByID(ctx, clientID)
 	assert.Error(t, err)
 
 	// Verify Cache deleted
-	_, err = cache.ClientFindByID(ctx, clientID)
+	_, err = cache.ClientGetByID(ctx, clientID)
 	assert.Error(t, err) // Should be not found
 }
 
@@ -167,10 +167,10 @@ func TestTieredStorage_ClientUpdate(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Verify DB
-	dbClient, _ := db.ClientFindByID(ctx, clientID)
+	dbClient, _ := db.ClientGetByID(ctx, clientID)
 	assert.Equal(t, "scope2", dbClient.GetScope())
 
 	// Verify Cache
-	cacheClient, _ := storage.ClientFindByID(ctx, clientID)
+	cacheClient, _ := storage.ClientGetByID(ctx, clientID)
 	assert.Equal(t, "scope2", cacheClient.GetScope())
 }

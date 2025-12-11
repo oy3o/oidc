@@ -10,7 +10,7 @@ import (
 
 var clientTable = (&oidc.ClientMetadata{}).TableName()
 
-func (s *PgxStorage) ClientFindByID(ctx context.Context, clientID oidc.BinaryUUID) (oidc.RegisteredClient, error) {
+func (s *PgxStorage) ClientGetByID(ctx context.Context, clientID oidc.BinaryUUID) (oidc.RegisteredClient, error) {
 	var model oidc.ClientMetadata
 	query, args, err := psql.Select("*").From(clientTable).Where(map[string]interface{}{"id": clientID}).ToSql()
 	if err != nil {
@@ -81,7 +81,7 @@ func (s *PgxStorage) ClientUpdate(ctx context.Context, clientID oidc.BinaryUUID,
 	}
 
 	// 重新获取以返回完整对象（或者直接合并）
-	return s.ClientFindByID(ctx, clientID)
+	return s.ClientGetByID(ctx, clientID)
 }
 
 func (s *PgxStorage) ClientDeleteByID(ctx context.Context, clientID oidc.BinaryUUID) error {

@@ -71,7 +71,7 @@ func EndSession(ctx context.Context, storage Storage, verifier TokenVerifier, re
 	// 必须与 Client 注册的 URI 匹配
 	redirectURL := ""
 	if req.PostLogoutRedirectURI != "" && clientID != (BinaryUUID{}) {
-		client, err := storage.ClientFindByID(ctx, clientID)
+		client, err := storage.ClientGetByID(ctx, clientID)
 		if err == nil {
 			// 这里应该检查 PostLogoutRedirectURIs，但接口里只有 GetRedirectURIs
 			// 简化处理：检查是否在 RedirectURIs 中

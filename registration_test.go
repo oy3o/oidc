@@ -51,7 +51,7 @@ func TestRegisterClient_Confidential(t *testing.T) {
 	assert.Equal(t, req.TokenEndpointAuthMethod, resp.TokenEndpointAuthMethod)
 
 	// 3. 验证存储 (Secret 应该是哈希过的)
-	storedClient, err := storage.ClientFindByID(ctx, oidc.BinaryUUID(uuid.MustParse(resp.ClientID)))
+	storedClient, err := storage.ClientGetByID(ctx, oidc.BinaryUUID(uuid.MustParse(resp.ClientID)))
 	require.NoError(t, err)
 
 	// MockStorage 存储的是 RegisteredClient 接口，我们需要断言具体的实现或行为
@@ -85,7 +85,7 @@ func TestRegisterClient_Public(t *testing.T) {
 	assert.Empty(t, resp.ClientSecret, "Public client should not have a secret")
 
 	// 3. 验证存储
-	storedClient, err := storage.ClientFindByID(ctx, oidc.BinaryUUID(uuid.MustParse(resp.ClientID)))
+	storedClient, err := storage.ClientGetByID(ctx, oidc.BinaryUUID(uuid.MustParse(resp.ClientID)))
 	require.NoError(t, err)
 	assert.False(t, storedClient.IsConfidential())
 }
@@ -184,7 +184,7 @@ func TestClientUpdate_Success(t *testing.T) {
 	assert.Equal(t, []string{"https://new.com"}, updateResp.RedirectURIs)
 
 	// 5. 验证存储中的 Secret 未改变 (Update 不应重置 Secret)
-	storedClient, _ := storage.ClientFindByID(ctx, oidc.BinaryUUID(uuid.MustParse(clientID)))
+	storedClient, _ := storage.ClientGetByID(ctx, oidc.BinaryUUID(uuid.MustParse(clientID)))
 	err = storedClient.ValidateSecret(ctx, hasher, originalSecret)
 	assert.NoError(t, err, "Secret should persist after update")
 }
@@ -217,7 +217,7 @@ func TestUnregisterClient(t *testing.T) {
 	clientID := resp.ClientID
 
 	// 2. 验证存在
-	_, err := storage.ClientFindByID(ctx, oidc.BinaryUUID(uuid.MustParse(clientID)))
+	_, err := storage.ClientGetByID(ctx, oidc.BinaryUUID(uuid.MustParse(clientID)))
 	require.NoError(t, err)
 
 	// 3. 注销
@@ -225,7 +225,7 @@ func TestUnregisterClient(t *testing.T) {
 	require.NoError(t, err)
 
 	// 4. 验证不存在
-	_, err = storage.ClientFindByID(ctx, oidc.BinaryUUID(uuid.MustParse(clientID)))
+	_, err = storage.ClientGetByID(ctx, oidc.BinaryUUID(uuid.MustParse(clientID)))
 	assert.ErrorIs(t, err, oidc.ErrClientNotFound)
 }
 

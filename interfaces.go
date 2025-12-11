@@ -140,9 +140,9 @@ func (c *ClientMetadata) ValidateSecret(ctx context.Context, hasher Hasher, secr
 
 // ClientStorage 定义了获取客户端信息的接口。
 type ClientStorage interface {
-	// ClientFindByID 根据 ID 获取客户端详情。
+	// ClientGetByID 根据 ID 获取客户端详情。
 	// 如果未找到，应返回 ErrClientNotFound。
-	ClientFindByID(ctx context.Context, clientID BinaryUUID) (RegisteredClient, error)
+	ClientGetByID(ctx context.Context, clientID BinaryUUID) (RegisteredClient, error)
 
 	// ClientCreate 注册新客户端
 	// 注意：metadata.Secret 必须已经通过 Hasher.Hash() 哈希处理
@@ -163,8 +163,8 @@ type ClientStorage interface {
 
 // ClientCache 定义了客户端信息的缓存接口。
 type ClientCache interface {
-	// ClientFindByID 从缓存获取客户端
-	ClientFindByID(ctx context.Context, clientID BinaryUUID) (RegisteredClient, error)
+	// ClientGetByID 从缓存获取客户端
+	ClientGetByID(ctx context.Context, clientID BinaryUUID) (RegisteredClient, error)
 
 	// ClientSave 将客户端存入缓存
 	ClientSave(ctx context.Context, client RegisteredClient, ttl time.Duration) error

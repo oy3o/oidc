@@ -34,7 +34,7 @@ func (s *PgxStorage) JWKSave(ctx context.Context, key jwk.Key) error {
 		return err
 	}
 
-	_, err = s.db.Exec(ctx, query, args...)
+	_, err = s.getDB(ctx).Exec(ctx, query, args...)
 	return err
 }
 
@@ -50,7 +50,7 @@ func (s *PgxStorage) JWKGet(ctx context.Context, kid string) (jwk.Key, error) {
 		return nil, err
 	}
 
-	if err := pgxscan.Get(ctx, s.db, &model, query, args...); err != nil {
+	if err := pgxscan.Get(ctx, s.getDB(ctx), &model, query, args...); err != nil {
 		if pgxscan.NotFound(err) {
 			return nil, oidc.ErrKeyNotFound
 		}
@@ -75,7 +75,7 @@ func (s *PgxStorage) JWKList(ctx context.Context) ([]jwk.Key, error) {
 		return nil, err
 	}
 
-	if err := pgxscan.Select(ctx, s.db, &models, query, args...); err != nil {
+	if err := pgxscan.Select(ctx, s.getDB(ctx), &models, query, args...); err != nil {
 		return nil, err
 	}
 
@@ -105,7 +105,7 @@ func (s *PgxStorage) JWKDelete(ctx context.Context, kid string) error {
 		return err
 	}
 
-	_, err = s.db.Exec(ctx, query, args...)
+	_, err = s.getDB(ctx).Exec(ctx, query, args...)
 	return err
 }
 
@@ -124,7 +124,7 @@ func (s *PgxStorage) JWKMarkSigning(ctx context.Context, kid string) error {
 		return err
 	}
 
-	_, err = s.db.Exec(ctx, query, args...)
+	_, err = s.getDB(ctx).Exec(ctx, query, args...)
 	return err
 }
 
@@ -141,7 +141,7 @@ func (s *PgxStorage) JWKGetSigning(ctx context.Context) (string, error) {
 		return "", err
 	}
 
-	if err := pgxscan.Get(ctx, s.db, &model, query, args...); err != nil {
+	if err := pgxscan.Get(ctx, s.getDB(ctx), &model, query, args...); err != nil {
 		if pgxscan.NotFound(err) {
 			return "", oidc.ErrKeyNotFound
 		}

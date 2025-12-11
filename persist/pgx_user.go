@@ -6,7 +6,6 @@ import (
 
 	"github.com/georgysavva/scany/v2/pgxscan"
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/oy3o/oidc"
 )
 
@@ -14,7 +13,9 @@ import (
 
 // UserCreate 事务性创建用户、Profile 和 Credentials
 func (s *PgxStorage) UserCreate(ctx context.Context, user *User, credentials []*Credential, profile *Profile) error {
-	return s.execTx(ctx, func(tx pgx.Tx) error {
+	return s.Tx(ctx, func(ctx context.Context, uow *PgxUOW) error {
+		executor := uow.Tx
+
 		// 1. Insert User
 		// 假设 ID 由数据库生成 (DEFAULT gen_random_uuid())，我们需要 RETURNING id
 		builder := psql.Insert("users")
@@ -33,7 +34,7 @@ func (s *PgxStorage) UserCreate(ctx context.Context, user *User, credentials []*
 			return err
 		}
 
-		if err := pgxscan.Get(ctx, tx, user, userQuery, userArgs...); err != nil {
+		if err := pgxscan.Get(ctx, executor, user, userQuery, userArgs...); err != nil {
 			return err
 		}
 
@@ -52,7 +53,7 @@ func (s *PgxStorage) UserCreate(ctx context.Context, user *User, credentials []*
 			if err != nil {
 				return err
 			}
-			if _, err := tx.Exec(ctx, profQuery, profArgs...); err != nil {
+			if _, err := executor.Exec(ctx, profQuery, profArgs...); err != nil {
 				if isUniqueViolation(err) {
 					return ErrIdentifierExists // Profile 中的 Email/Phone 可能冲突
 				}
@@ -70,7 +71,7 @@ func (s *PgxStorage) UserCreate(ctx context.Context, user *User, credentials []*
 			if err != nil {
 				return err
 			}
-			if _, err := tx.Exec(ctx, credQuery, credArgs...); err != nil {
+			if _, err := executor.Exec(ctx, credQuery, credArgs...); err != nil {
 				if isUniqueViolation(err) {
 					return ErrIdentifierExists
 				}
@@ -90,7 +91,7 @@ func (s *PgxStorage) UserDelete(ctx context.Context, id oidc.BinaryUUID) error {
 	if err != nil {
 		return err
 	}
-	tag, err := s.db.Exec(ctx, query, args...)
+	tag, err := s.getDB(ctx).Exec(ctx, query, args...)
 	if err != nil {
 		return err
 	}
@@ -106,7 +107,7 @@ func (s *PgxStorage) UserGetByID(ctx context.Context, id oidc.BinaryUUID) (*User
 	if err != nil {
 		return nil, err
 	}
-	if err := pgxscan.Get(ctx, s.db, &user, query, args...); err != nil {
+	if err := pgxscan.Get(ctx, s.getDB(ctx), &user, query, args...); err != nil {
 		if pgxscan.NotFound(err) {
 			return nil, ErrUserNotFound
 		}
@@ -124,7 +125,7 @@ func (s *PgxStorage) UserUpdateStatus(ctx context.Context, id oidc.BinaryUUID, s
 	if err != nil {
 		return err
 	}
-	tag, err := s.db.Exec(ctx, query, args...)
+	tag, err := s.getDB(ctx).Exec(ctx, query, args...)
 	if err != nil {
 		return err
 	}
@@ -143,7 +144,7 @@ func (s *PgxStorage) ProfileGetByUserID(ctx context.Context, userID oidc.BinaryU
 		return nil, err
 	}
 
-	if err := pgxscan.Get(ctx, s.db, &profile, query, args...); err != nil {
+	if err := pgxscan.Get(ctx, s.getDB(ctx), &profile, query, args...); err != nil {
 		if pgxscan.NotFound(err) {
 			return nil, ErrUserNotFound // Profile not found often means user context issue
 		}
@@ -183,7 +184,7 @@ func (s *PgxStorage) ProfileUpdate(ctx context.Context, profile *Profile) error 
 		return err
 	}
 
-	tag, err := s.db.Exec(ctx, query, args...)
+	tag, err := s.getDB(ctx).Exec(ctx, query, args...)
 	if err != nil {
 		if isUniqueViolation(err) {
 			return ErrIdentifierExists

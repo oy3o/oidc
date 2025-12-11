@@ -21,7 +21,7 @@ func (s *PgxStorage) UserUpdatePassword(ctx context.Context, userID oidc.BinaryU
 		return err
 	}
 
-	_, err = s.db.Exec(ctx, query, args...)
+	_, err = s.getDB(ctx).Exec(ctx, query, args...)
 	return err
 }
 
@@ -35,7 +35,7 @@ func (s *PgxStorage) CredentialCreate(ctx context.Context, cred *Credential) err
 		return err
 	}
 
-	if err := pgxscan.Get(ctx, s.db, cred, query, args...); err != nil {
+	if err := pgxscan.Get(ctx, s.getDB(ctx), cred, query, args...); err != nil {
 		if isUniqueViolation(err) {
 			return ErrIdentifierExists
 		}
@@ -49,7 +49,7 @@ func (s *PgxStorage) CredentialDeleteByID(ctx context.Context, credID uint64) er
 	if err != nil {
 		return err
 	}
-	tag, err := s.db.Exec(ctx, query, args...)
+	tag, err := s.getDB(ctx).Exec(ctx, query, args...)
 	if err != nil {
 		return err
 	}
@@ -71,7 +71,7 @@ func (s *PgxStorage) CredentialGetByIdentifier(ctx context.Context, credType Cre
 		return nil, err
 	}
 
-	if err := pgxscan.Get(ctx, s.db, &cred, query, args...); err != nil {
+	if err := pgxscan.Get(ctx, s.getDB(ctx), &cred, query, args...); err != nil {
 		if pgxscan.NotFound(err) {
 			return nil, ErrCredentialNotFound
 		}
@@ -90,7 +90,7 @@ func (s *PgxStorage) CredentialUpdate(ctx context.Context, cred *Credential) err
 	if err != nil {
 		return err
 	}
-	tag, err := s.db.Exec(ctx, query, args...)
+	tag, err := s.getDB(ctx).Exec(ctx, query, args...)
 	if err != nil {
 		return err
 	}

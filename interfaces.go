@@ -166,8 +166,8 @@ type ClientCache interface {
 	// ClientFindByID 从缓存获取客户端
 	ClientFindByID(ctx context.Context, clientID BinaryUUID) (RegisteredClient, error)
 
-	// ClientCache 将客户端存入缓存
-	ClientCache(ctx context.Context, client RegisteredClient, ttl time.Duration) error
+	// ClientSave 将客户端存入缓存
+	ClientSave(ctx context.Context, client RegisteredClient, ttl time.Duration) error
 
 	// ClientInvalidate 从缓存中移除客户端
 	ClientInvalidate(ctx context.Context, clientID BinaryUUID) error
@@ -343,7 +343,7 @@ type TokenStorage interface {
 
 	// RefreshTokenRotate 令牌轮换：删除旧的，保存新的。
 	// 强烈建议在事务中执行：如果保存新令牌失败，旧令牌也不应被删除（或者整个操作回滚）。
-	RefreshTokenRotate(ctx context.Context, oldTokenID Hash256, newSession *RefreshTokenSession) error
+	RefreshTokenRotate(ctx context.Context, oldTokenID Hash256, newSession *RefreshTokenSession, gracePeriod time.Duration) error
 
 	// RefreshTokenRevoke 撤销指定的刷新令牌。
 	RefreshTokenRevoke(ctx context.Context, tokenID Hash256) error
@@ -360,29 +360,17 @@ type TokenCache interface {
 	// RefreshTokenGet 从缓存获取
 	RefreshTokenGet(ctx context.Context, tokenID Hash256) (*RefreshTokenSession, error)
 
-	// RefreshTokenCache 存入缓存
-	RefreshTokenCache(ctx context.Context, session *RefreshTokenSession, ttl time.Duration) error
+	// RefreshTokenSave 存入缓存
+	RefreshTokenSave(ctx context.Context, session *RefreshTokenSession, ttl time.Duration) error
+
+	// RefreshTokenRotate 令牌轮换：删除旧的，保存新的。如果保存新令牌失败，旧令牌也不应被删除（或者整个操作回滚）。
+	RefreshTokenRotate(ctx context.Context, oldTokenID Hash256, newSession *RefreshTokenSession, gracePeriod time.Duration) error
 
 	// RefreshTokenInvalidate 从缓存移除
 	RefreshTokenInvalidate(ctx context.Context, tokenID Hash256) error
 
 	// RefreshTokensInvalidate 批量从缓存移除
 	RefreshTokensInvalidate(ctx context.Context, tokenIDs []Hash256) error
-}
-
-// TokenRotationStorage 负责快速检测刷新令牌的轮换状态。
-type TokenRotationStorage interface {
-	// RefreshTokenMarkRotating 标记旧 Token 进入宽限期
-	// 在宽限期内，旧 Token 仍可刷新（但仅一次）
-	// gracePeriod: 宽限期时长，建议 30 秒
-	//
-	// RFC 6749 说明：在网络不稳定环境中，客户端可能并发发送多个刷新请求
-	// 宽限期允许客户端在短时间内使用旧 Token 重试，避免合法请求失败
-	RefreshTokenMarkRotating(ctx context.Context, tokenID Hash256, gracePeriod time.Duration) error
-
-	// RefreshTokenInGracePeriod 检查 Token 是否在宽限期内
-	// 返回 true 表示可以允许一次重试刷新
-	RefreshTokenInGracePeriod(ctx context.Context, tokenID Hash256) (bool, error)
 }
 
 // RevocationStorage 用于管理 Access Token 的黑名单 (Revocation JWKList)。
@@ -495,13 +483,12 @@ type Persistence interface {
 // Cache 负责临时、高频、需要自动过期的数据
 // 建议实现：Redis
 type Cache interface {
-	AuthCodeStorage      // 极短 TTL
-	DeviceCodeStorage    // 短 TTL
-	DistributedLock      // 分布式锁
-	PARStorage           // 极短 TTL
-	ReplayCache          // DPoP JTI 防重放
-	RevocationStorage    // Access Token 黑名单 (高频读取)
-	TokenRotationStorage // 快速检测被轮转的 Refresh Token
+	AuthCodeStorage   // 极短 TTL
+	DeviceCodeStorage // 短 TTL
+	DistributedLock   // 分布式锁
+	PARStorage        // 极短 TTL
+	ReplayCache       // DPoP JTI 防重放
+	RevocationStorage // Access Token 黑名单 (高频读取)
 
 	// 用于多级缓存, “缓存穿透”和“回写”的逻辑
 	KeyStorage // JWK (基础设施)

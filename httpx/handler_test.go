@@ -34,20 +34,11 @@ func (f *clientFactory) New() oidc.RegisteredClient {
 	return &oidc.ClientMetadata{}
 }
 
-func NewTestCache(t *testing.T) oidc.Cache {
-	s := miniredis.RunT(t)
-
-	rdb := redis.NewClient(&redis.Options{
-		Addr: s.Addr(),
-	})
-	return cache.NewRedis(rdb, &clientFactory{})
-}
-
 // 全局变量，整个测试套件生命周期内只初始化一次
 var (
-	testPool      *pgxpool.Pool
-	testContainer *postgres.PostgresContainer
-	poolOnce      sync.Once
+	TestPool      *pgxpool.Pool
+	TestContainer *postgres.PostgresContainer
+	PoolOnce      sync.Once
 )
 
 // TestMain 控制测试的主入口，负责全局容器的启动和销毁
@@ -67,7 +58,7 @@ func TestMain(m *testing.M) {
 	shutdown, _ := o11y.Init(cfg)
 
 	// 1. 启动容器 (只启动一次)
-	poolOnce.Do(func() {
+	PoolOnce.Do(func() {
 		container, err := postgres.Run(
 			ctx,
 			"docker.io/postgres:18-alpine",
@@ -78,7 +69,7 @@ func TestMain(m *testing.M) {
 			fmt.Printf("failed to start container: %v\n", err)
 			os.Exit(1)
 		}
-		testContainer = container
+		TestContainer = container
 
 		// 2. 获取连接字符串
 		connStr, err := container.ConnectionString(ctx, "sslmode=disable")
@@ -104,7 +95,7 @@ func TestMain(m *testing.M) {
 			_ = container.Terminate(ctx)
 			os.Exit(1)
 		}
-		testPool = pool
+		TestPool = pool
 
 		// 等待数据库就绪
 		if err := waitForDB(ctx, pool); err != nil {
@@ -118,8 +109,8 @@ func TestMain(m *testing.M) {
 	code := m.Run()
 
 	// 5. 清理资源
-	testPool.Close()
-	if err := testContainer.Terminate(ctx); err != nil {
+	TestPool.Close()
+	if err := TestContainer.Terminate(ctx); err != nil {
 		fmt.Printf("failed to terminate container: %v\n", err)
 	}
 
@@ -147,15 +138,24 @@ func waitForDB(ctx context.Context, pool *pgxpool.Pool) error {
 	}
 }
 
+func NewTestCache(t *testing.T) (oidc.Cache, *miniredis.Miniredis) {
+	s := miniredis.RunT(t)
+
+	rdb := redis.NewClient(&redis.Options{
+		Addr: s.Addr(),
+	})
+	return cache.NewRedis(rdb, &clientFactory{}), s
+}
+
 // NewTestDB 获取全局的 Pool，并清空数据
 func NewTestDB(t *testing.T) oidc.Persistence {
-	if testPool == nil {
+	if TestPool == nil {
 		t.Fatal("Global test pool is not initialized. TestMain failed to run?")
 	}
 
 	// 每次测试前清空表，保证测试隔离性 (TRUNCATE 速度极快)
 	// CASCADE 会自动处理外键依赖
-	_, err := testPool.Exec(context.Background(), `
+	_, err := TestPool.Exec(context.Background(), `
 		TRUNCATE users, profiles, credentials, oidc_clients, 
 		oidc_auth_codes, oidc_device_codes, oidc_refresh_tokens, jwks 
 		CASCADE
@@ -163,16 +163,17 @@ func NewTestDB(t *testing.T) oidc.Persistence {
 	require.NoError(t, err, "failed to clean database")
 
 	hasher := &mockHasher{}
-	return persist.NewPgx(testPool, hasher)
+	return persist.NewPgx(TestPool, hasher)
 }
 
-func NewTestStorage(t *testing.T) oidc.Storage {
-	return oidc.NewTieredStorage(NewTestDB(t), NewTestCache(t))
+func NewTestStorage(t *testing.T) (*oidc.TieredStorage, *miniredis.Miniredis) {
+	rdb, s := NewTestCache(t)
+	return oidc.NewTieredStorage(NewTestDB(t), rdb), s
 }
 
 // setupServer 创建一个完全配置的 OIDC Server 用于测试
 func setupServer(t *testing.T) (*oidc.Server, oidc.Storage, oidc.RegisteredClient) {
-	storage := NewTestStorage(t)
+	storage, _ := NewTestStorage(t)
 	hasher := &mockHasher{}
 
 	// 1. 初始化 Secret Manager

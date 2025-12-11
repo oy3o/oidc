@@ -41,7 +41,7 @@ func newTestHandler(t *testing.T, wantJKT string) http.Handler {
 // -----------------------------------------------------------------------------
 
 func TestDPoPOptionalMiddleware(t *testing.T) {
-	storage := NewTestStorage(t)
+	storage, _ := NewTestStorage(t)
 	key := generateECKey(t)
 
 	// 准备参数
@@ -103,7 +103,7 @@ func TestDPoPOptionalMiddleware(t *testing.T) {
 }
 
 func TestDPoPRequiredMiddleware(t *testing.T) {
-	storage := NewTestStorage(t)
+	storage, _ := NewTestStorage(t)
 	key := generateECKey(t)
 	htm, htu := "GET", "http://example.com/resource"
 
@@ -219,8 +219,8 @@ func TestShouldUseDPoP(t *testing.T) {
 }
 
 func TestDPoP_ReplayProtection(t *testing.T) {
-	storage := NewTestStorage(t) // 实现了 ReplayCache
-	key := generateECKey(t)      // 辅助函数在 dpop_test.go 中
+	storage, _ := NewTestStorage(t) // 实现了 ReplayCache
+	key := generateECKey(t)         // 辅助函数在 dpop_test.go 中
 	htm, htu := "POST", "http://example.com/resource"
 	jti := uuid.NewString()
 

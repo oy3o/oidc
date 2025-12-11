@@ -29,10 +29,11 @@ type ServerConfig struct {
 	SecretManager *SecretManager
 
 	// 令牌有效期配置 (若为 0，NewServer 会设置默认值)
-	CodeTTL         time.Duration // 默认 5 分钟
-	AccessTokenTTL  time.Duration // 默认 1 小时
-	RefreshTokenTTL time.Duration // 默认 30 天
-	IDTokenTTL      time.Duration // 默认 1 小时
+	CodeTTL                 time.Duration // 默认 5 分钟
+	AccessTokenTTL          time.Duration // 默认 1 小时
+	RefreshTokenTTL         time.Duration // 默认 30 天
+	IDTokenTTL              time.Duration // 默认 1 小时
+	RefreshTokenGracePeriod time.Duration // 默认 30 秒
 
 	// SupportedSigningAlgs 支持的签名算法 (默认为 RS256, ES256)
 	SupportedSigningAlgs []string
@@ -87,6 +88,9 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 	if cfg.RefreshTokenTTL == 0 {
 		cfg.RefreshTokenTTL = 24 * 30 * time.Hour
 	}
+	if cfg.RefreshTokenGracePeriod == 0 {
+		cfg.RefreshTokenGracePeriod = 30 * time.Second
+	}
 	if cfg.IDTokenTTL == 0 {
 		cfg.IDTokenTTL = 1 * time.Hour
 	}
@@ -104,11 +108,12 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 
 	// 4. 初始化 Issuer
 	issuerCfg := IssuerConfig{
-		Issuer:          cfg.Issuer,
-		AccessTokenTTL:  cfg.AccessTokenTTL,
-		RefreshTokenTTL: cfg.RefreshTokenTTL,
-		IDTokenTTL:      cfg.IDTokenTTL,
-		SecretManager:   sm, // 传递 SecretManager
+		Issuer:                  cfg.Issuer,
+		AccessTokenTTL:          cfg.AccessTokenTTL,
+		RefreshTokenTTL:         cfg.RefreshTokenTTL,
+		RefreshTokenGracePeriod: cfg.RefreshTokenGracePeriod,
+		IDTokenTTL:              cfg.IDTokenTTL,
+		SecretManager:           sm, // 传递 SecretManager
 	}
 	issuer, err := NewIssuer(issuerCfg, km)
 	if err != nil {

@@ -19,13 +19,13 @@ func (f *clientFactory) New() oidc.RegisteredClient {
 	return &oidc.ClientMetadata{}
 }
 
-func NewTestCache(t *testing.T) oidc.Cache {
+func NewTestCache(t *testing.T) (oidc.Cache, *miniredis.Miniredis) {
 	s := miniredis.RunT(t)
 
 	rdb := redis.NewClient(&redis.Options{
 		Addr: s.Addr(),
 	})
-	return cache.NewRedis(rdb, &clientFactory{})
+	return cache.NewRedis(rdb, &clientFactory{}), s
 }
 
 // NewTestDB 获取全局的 Pool，并清空数据
@@ -47,12 +47,13 @@ func NewTestDB(t *testing.T) oidc.Persistence {
 	return persist.NewPgx(TestPool, hasher)
 }
 
-func NewTestStorage(t *testing.T) oidc.Storage {
-	return oidc.NewTieredStorage(NewTestDB(t), NewTestCache(t))
+func NewTestStorage(t *testing.T) (*oidc.TieredStorage, *miniredis.Miniredis) {
+	rdb, s := NewTestCache(t)
+	return oidc.NewTieredStorage(NewTestDB(t), rdb), s
 }
 
 func TestTieredStorage_ClientFindByID(t *testing.T) {
-	cache := NewTestCache(t)
+	cache, _ := NewTestCache(t)
 	db := NewTestDB(t)
 	storage := oidc.NewTieredStorage(db, cache)
 	ctx := context.Background()
@@ -100,7 +101,7 @@ func TestTieredStorage_ClientFindByID(t *testing.T) {
 }
 
 func TestTieredStorage_ClientCreate(t *testing.T) {
-	cache := NewTestCache(t)
+	cache, _ := NewTestCache(t)
 	db := NewTestDB(t)
 	storage := oidc.NewTieredStorage(db, cache)
 	ctx := context.Background()
@@ -126,7 +127,7 @@ func TestTieredStorage_ClientCreate(t *testing.T) {
 }
 
 func TestTieredStorage_ClientDeleteByID(t *testing.T) {
-	cache := NewTestCache(t)
+	cache, _ := NewTestCache(t)
 	db := NewTestDB(t)
 	storage := oidc.NewTieredStorage(db, cache)
 	ctx := context.Background()
@@ -149,7 +150,7 @@ func TestTieredStorage_ClientDeleteByID(t *testing.T) {
 }
 
 func TestTieredStorage_ClientUpdate(t *testing.T) {
-	cache := NewTestCache(t)
+	cache, _ := NewTestCache(t)
 	db := NewTestDB(t)
 	storage := oidc.NewTieredStorage(db, cache)
 	ctx := context.Background()

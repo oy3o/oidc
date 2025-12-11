@@ -16,9 +16,10 @@ type IssuerConfig struct {
 	SecretManager *SecretManager
 
 	// 默认 TTL (兜底策略)
-	AccessTokenTTL  time.Duration
-	IDTokenTTL      time.Duration
-	RefreshTokenTTL time.Duration
+	AccessTokenTTL          time.Duration
+	IDTokenTTL              time.Duration
+	RefreshTokenTTL         time.Duration
+	RefreshTokenGracePeriod time.Duration
 }
 
 // Issuer 负责生成符合 OIDC/OAuth2 标准的 Token

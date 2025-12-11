@@ -53,7 +53,7 @@ func (s *TieredStorage) ClientFindByID(ctx context.Context, clientID BinaryUUID)
 
 	// 3. Populate Cache (Async or Sync? Sync for Read-Through usually)
 	// We use a short TTL or standard TTL. Let's assume 1 hour for clients.
-	_ = s.Cache.ClientCache(ctx, client, time.Hour)
+	_ = s.Cache.ClientSave(ctx, client, time.Hour)
 
 	return client, nil
 }
@@ -66,7 +66,7 @@ func (s *TieredStorage) ClientCreate(ctx context.Context, metadata *ClientMetada
 	}
 
 	// 2. Write Cache
-	_ = s.Cache.ClientCache(ctx, client, time.Hour)
+	_ = s.Cache.ClientSave(ctx, client, time.Hour)
 	return client, nil
 }
 
@@ -122,7 +122,7 @@ func (s *TieredStorage) RefreshTokenCreate(ctx context.Context, session *Refresh
 	// Or cache for full duration.
 	ttl := time.Until(session.ExpiresAt)
 	if ttl > 0 {
-		_ = s.Cache.RefreshTokenCache(ctx, session, ttl)
+		_ = s.Cache.RefreshTokenSave(ctx, session, ttl)
 	}
 	return nil
 }
@@ -143,26 +143,23 @@ func (s *TieredStorage) RefreshTokenGet(ctx context.Context, tokenID Hash256) (*
 	// 3. Populate Cache
 	ttl := time.Until(session.ExpiresAt)
 	if ttl > 0 {
-		_ = s.Cache.RefreshTokenCache(ctx, session, ttl)
+		_ = s.Cache.RefreshTokenSave(ctx, session, ttl)
 	}
 
 	return session, nil
 }
 
-func (s *TieredStorage) RefreshTokenRotate(ctx context.Context, oldTokenID Hash256, newSession *RefreshTokenSession) error {
+func (s *TieredStorage) RefreshTokenRotate(ctx context.Context, oldTokenID Hash256, newSession *RefreshTokenSession, gracePeriod time.Duration) error {
 	// 1. Write DB (Transaction ideally handled by DB layer)
-	if err := s.Persistence.RefreshTokenRotate(ctx, oldTokenID, newSession); err != nil {
+	if err := s.Persistence.RefreshTokenRotate(ctx, oldTokenID, newSession, 0); err != nil {
 		return err
 	}
 
-	// 2. Invalidate old token from cache (Cache-Aside)
-	// If cache invalidation fails, log but don't fail the request
-	if err := s.Cache.RefreshTokenInvalidate(ctx, oldTokenID); err != nil {
+	// 2. Write Cache,
+	if err := s.Cache.RefreshTokenRotate(ctx, oldTokenID, newSession, gracePeriod); err != nil {
 		log.Error().Err(err).Msg("Failed to invalidate refresh token cache")
 	}
 
-	// Note: We don't proactively cache the new token
-	// It will be cached on first read (Read-Through)
 	return nil
 }
 

@@ -13,7 +13,7 @@ import (
 
 // setupDeviceFlowTest 初始化设备流测试环境
 func setupDeviceFlowTest(t *testing.T) (*oidc.Server, oidc.Storage, oidc.RegisteredClient) {
-	storage := NewTestStorage(t)
+	storage, _ := NewTestStorage(t)
 	hasher := &mockHasher{}
 
 	// 初始化 SecretManager 并添加 HMAC 密钥

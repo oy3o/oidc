@@ -17,7 +17,7 @@ import (
 // -----------------------------------------------------------------------------
 
 func TestNewServer_Validation(t *testing.T) {
-	storage := NewTestStorage(t)
+	storage, _ := NewTestStorage(t)
 	hasher := &mockHasher{}
 
 	tests := []struct {
@@ -77,7 +77,7 @@ func TestNewServer_Validation(t *testing.T) {
 }
 
 func TestServer_Defaults(t *testing.T) {
-	storage := NewTestStorage(t)
+	storage, _ := NewTestStorage(t)
 	hasher := &mockHasher{}
 
 	// 初始化 SecretManager 并添加 HMAC 密钥
@@ -110,7 +110,7 @@ func TestServer_Defaults(t *testing.T) {
 // -----------------------------------------------------------------------------
 
 func TestServer_ValidateKeys(t *testing.T) {
-	storage := NewTestStorage(t)
+	storage, _ := NewTestStorage(t)
 	hasher := &mockHasher{}
 
 	// 初始化 SecretManager 并添加 HMAC 密钥
@@ -149,7 +149,7 @@ func TestServer_ValidateKeys(t *testing.T) {
 // -----------------------------------------------------------------------------
 
 func TestServer_Discovery(t *testing.T) {
-	storage := NewTestStorage(t)
+	storage, _ := NewTestStorage(t)
 	hasher := &mockHasher{}
 	issuer := "https://auth.example.com"
 
@@ -188,7 +188,7 @@ func TestServer_Discovery(t *testing.T) {
 // -----------------------------------------------------------------------------
 
 func TestServer_VerifyAccessToken(t *testing.T) {
-	storage := NewTestStorage(t)
+	storage, _ := NewTestStorage(t)
 	hasher := &mockHasher{}
 	issuerURL := "https://auth.example.com"
 
@@ -253,7 +253,7 @@ func TestServer_VerifyAccessToken(t *testing.T) {
 }
 
 func TestServer_VerifyAccessToken_Expired(t *testing.T) {
-	storage := NewTestStorage(t)
+	storage, _ := NewTestStorage(t)
 	hasher := &mockHasher{}
 
 	// 初始化 SecretManager 并添加 HMAC 密钥
@@ -299,7 +299,7 @@ func TestServer_VerifyAccessToken_Expired(t *testing.T) {
 // 5. Introspection Test
 // -----------------------------------------------------------------------------
 func TestServer_Introspect(t *testing.T) {
-	storage := NewTestStorage(t)
+	storage, _ := NewTestStorage(t)
 	hasher := &mockHasher{}
 
 	// 初始化 SecretManager 并添加 HMAC 密钥

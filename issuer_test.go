@@ -16,7 +16,7 @@ func TestConcurrent_TokenIssuance(t *testing.T) {
 		t.Skip("skipping concurrent token test in short mode")
 	}
 
-	server, _, client := setupExchangeTest(t)
+	server, _, client, _ := setupExchangeTest(t)
 	ctx := context.Background()
 	userID := oidc.BinaryUUID(uuid.New())
 

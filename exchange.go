@@ -287,7 +287,7 @@ func RefreshTokens(ctx context.Context, storage Storage, secretManager *SecretMa
 	}
 
 	// 执行原子轮换：删除旧的，保存新的
-	if err := storage.RefreshTokenRotate(ctx, rtHash, newSession); err != nil {
+	if err := storage.RefreshTokenRotate(ctx, rtHash, newSession, issuer.cfg.RefreshTokenGracePeriod); err != nil {
 		return nil, fmt.Errorf("failed to rotate refresh token: %w", err)
 	}
 

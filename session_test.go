@@ -14,7 +14,7 @@ import (
 
 // setupSessionTest 初始化 Session 测试环境
 func setupSessionTest(t *testing.T) (*oidc.Server, oidc.Storage, oidc.RegisteredClient) {
-	storage := NewTestStorage(t)
+	storage, _ := NewTestStorage(t)
 	hasher := &mockHasher{} // 假设已在 authorize_test.go 定义
 
 	// 初始化 SecretManager 并添加 HMAC 密钥

@@ -51,7 +51,7 @@ func (s *PgxStorage) RefreshTokenGet(ctx context.Context, tokenID oidc.Hash256) 
 	return &model, nil
 }
 
-func (s *PgxStorage) RefreshTokenRotate(ctx context.Context, oldTokenID oidc.Hash256, newSession *oidc.RefreshTokenSession) error {
+func (s *PgxStorage) RefreshTokenRotate(ctx context.Context, oldTokenID oidc.Hash256, newSession *oidc.RefreshTokenSession, gracePeriod time.Duration) error {
 	return s.execTx(ctx, func(tx pgx.Tx) error {
 		// 1. 删除旧的
 		delQuery, delArgs, err := psql.Delete("oidc_refresh_tokens").

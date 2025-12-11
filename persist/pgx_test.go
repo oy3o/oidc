@@ -365,7 +365,7 @@ func TestRefreshTokenLifecycle(t *testing.T) {
 	newSession := *session
 	newSession.ID = newTokenID
 
-	err = p.RefreshTokenRotate(ctx, tokenID, &newSession)
+	err = p.RefreshTokenRotate(ctx, tokenID, &newSession, 0)
 	require.NoError(t, err)
 
 	_, err = p.RefreshTokenGet(ctx, tokenID) // Old should be gone

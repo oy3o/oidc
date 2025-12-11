@@ -46,7 +46,7 @@ func TestKeyRotationScheduler_RotateNow(t *testing.T) {
 	ctx := context.Background()
 
 	// 创建 MockStorage 和 KeyManager
-	storage := NewTestStorage(t)
+	storage, _ := NewTestStorage(t)
 	km := oidc.NewKeyManager(storage, 0)
 	initialKID, err := km.Generate(ctx, oidc.KEY_RSA, true)
 	if err != nil {
@@ -98,7 +98,7 @@ func TestKeyRotationScheduler_RotateNow(t *testing.T) {
 func TestKeyRotationScheduler_ConcurrentRotate(t *testing.T) {
 	ctx := context.Background()
 
-	storage := NewTestStorage(t)
+	storage, _ := NewTestStorage(t)
 	km := oidc.NewKeyManager(storage, 0)
 	config := oidc.KeyRotationConfig{
 		RotationInterval: 1 * time.Minute,
@@ -158,7 +158,7 @@ func TestKeyRotationScheduler_AutoRotation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	storage := NewTestStorage(t)
+	storage, _ := NewTestStorage(t)
 	km := oidc.NewKeyManager(storage, 0)
 	config := oidc.KeyRotationConfig{
 		RotationInterval: 2 * time.Second, // 快速轮换用于测试
@@ -194,7 +194,7 @@ func TestKeyRotationScheduler_GracePeriodCleanup(t *testing.T) {
 
 	ctx := context.Background()
 
-	storage := NewTestStorage(t)
+	storage, _ := NewTestStorage(t)
 	km := oidc.NewKeyManager(storage, 0)
 	config := oidc.KeyRotationConfig{
 		RotationInterval: 1 * time.Minute,
@@ -239,7 +239,7 @@ func TestKeyRotationScheduler_GracePeriodCleanup(t *testing.T) {
 func TestKeyRotationScheduler_ZeroGracePeriod(t *testing.T) {
 	ctx := context.Background()
 
-	storage := NewTestStorage(t)
+	storage, _ := NewTestStorage(t)
 	km := oidc.NewKeyManager(storage, 0)
 	config := oidc.KeyRotationConfig{
 		RotationInterval: 1 * time.Minute,

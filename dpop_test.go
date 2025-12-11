@@ -70,7 +70,7 @@ func makeDPoPProof(
 
 func TestVerifyDPoPProof_Valid(t *testing.T) {
 	ctx := context.Background()
-	storage := NewTestStorage(t)
+	storage, _ := NewTestStorage(t)
 	key := generateECKey(t)
 
 	htm := "POST"
@@ -99,7 +99,7 @@ func TestVerifyDPoPProof_Valid(t *testing.T) {
 
 func TestVerifyDPoPProof_Replay(t *testing.T) {
 	ctx := context.Background()
-	storage := NewTestStorage(t)
+	storage, _ := NewTestStorage(t)
 	key := generateECKey(t)
 	htm, htu := "POST", "https://server.example.com/token"
 	jti := "replay-jti"
@@ -120,7 +120,7 @@ func TestVerifyDPoPProof_Replay(t *testing.T) {
 
 func TestVerifyDPoPProof_TimeSkew(t *testing.T) {
 	ctx := context.Background()
-	storage := NewTestStorage(t)
+	storage, _ := NewTestStorage(t)
 	key := generateECKey(t)
 	htm, htu := "POST", "https://server.example.com/token"
 
@@ -170,7 +170,7 @@ func TestVerifyDPoPProof_TimeSkew(t *testing.T) {
 
 func TestVerifyDPoPProof_MethodMismatch(t *testing.T) {
 	ctx := context.Background()
-	storage := NewTestStorage(t)
+	storage, _ := NewTestStorage(t)
 	key := generateECKey(t)
 	htu := "https://server.example.com/token"
 
@@ -186,7 +186,7 @@ func TestVerifyDPoPProof_MethodMismatch(t *testing.T) {
 
 func TestVerifyDPoPProof_URIMismatch(t *testing.T) {
 	ctx := context.Background()
-	storage := NewTestStorage(t)
+	storage, _ := NewTestStorage(t)
 	key := generateECKey(t)
 	htm := "POST"
 
@@ -202,7 +202,7 @@ func TestVerifyDPoPProof_URIMismatch(t *testing.T) {
 
 func TestVerifyDPoPProof_InvalidHeader(t *testing.T) {
 	ctx := context.Background()
-	storage := NewTestStorage(t)
+	storage, _ := NewTestStorage(t)
 	key := generateECKey(t)
 	htm, htu := "POST", "https://example.com/token"
 

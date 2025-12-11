@@ -199,29 +199,6 @@ func TestRedis_Revocation(t *testing.T) {
 	assert.True(t, revoked)
 }
 
-func TestRedis_TokenRotation_GracePeriod(t *testing.T) {
-	s, storage := setupRedis(t)
-	ctx := context.Background()
-	tokenID := oidc.RefreshToken("raw").HashForDB()
-
-	// Initial
-	inGrace, _ := storage.RefreshTokenInGracePeriod(ctx, tokenID)
-	assert.False(t, inGrace)
-
-	// Mark
-	err := storage.RefreshTokenMarkRotating(ctx, tokenID, 10*time.Second)
-	require.NoError(t, err)
-
-	// Check
-	inGrace, _ = storage.RefreshTokenInGracePeriod(ctx, tokenID)
-	assert.True(t, inGrace)
-
-	// Expire
-	s.FastForward(11 * time.Second)
-	inGrace, _ = storage.RefreshTokenInGracePeriod(ctx, tokenID)
-	assert.False(t, inGrace)
-}
-
 // ---------------------------------------------------------------------------
 // Distributed Lock Tests
 // ---------------------------------------------------------------------------
@@ -313,7 +290,7 @@ func TestRedis_TokenCache(t *testing.T) {
 	}
 
 	// JWKSave
-	err := storage.RefreshTokenCache(ctx, session, time.Minute)
+	err := storage.RefreshTokenSave(ctx, session, time.Minute)
 	require.NoError(t, err)
 
 	// JWKGet

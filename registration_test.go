@@ -27,7 +27,7 @@ func (h *regTestHasher) Compare(ctx context.Context, hashedPassword []byte, pass
 }
 
 func TestRegisterClient_Confidential(t *testing.T) {
-	storage := NewTestStorage(t)
+	storage, _ := NewTestStorage(t)
 	hasher := &regTestHasher{}
 	ctx := context.Background()
 
@@ -66,7 +66,7 @@ func TestRegisterClient_Confidential(t *testing.T) {
 }
 
 func TestRegisterClient_Public(t *testing.T) {
-	storage := NewTestStorage(t)
+	storage, _ := NewTestStorage(t)
 	hasher := &regTestHasher{}
 	ctx := context.Background()
 
@@ -91,7 +91,7 @@ func TestRegisterClient_Public(t *testing.T) {
 }
 
 func TestRegisterClient_ValidationFailures(t *testing.T) {
-	storage := NewTestStorage(t)
+	storage, _ := NewTestStorage(t)
 	hasher := &regTestHasher{}
 	ctx := context.Background()
 
@@ -152,7 +152,7 @@ func TestRegisterClient_ValidationFailures(t *testing.T) {
 }
 
 func TestClientUpdate_Success(t *testing.T) {
-	storage := NewTestStorage(t)
+	storage, _ := NewTestStorage(t)
 	hasher := &regTestHasher{}
 	ctx := context.Background()
 
@@ -190,7 +190,7 @@ func TestClientUpdate_Success(t *testing.T) {
 }
 
 func TestClientUpdate_NotFound(t *testing.T) {
-	storage := NewTestStorage(t)
+	storage, _ := NewTestStorage(t)
 	ctx := context.Background()
 	randomID := uuid.New().String()
 
@@ -204,7 +204,7 @@ func TestClientUpdate_NotFound(t *testing.T) {
 }
 
 func TestUnregisterClient(t *testing.T) {
-	storage := NewTestStorage(t)
+	storage, _ := NewTestStorage(t)
 	hasher := &regTestHasher{}
 	ctx := context.Background()
 

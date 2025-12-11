@@ -28,7 +28,7 @@ func (m *mockHasher) Compare(ctx context.Context, hashedPassword []byte, passwor
 
 // setupAuthorizeTest 初始化 Server 和 Storage，并注册一个默认客户端
 func setupAuthorizeTest(t *testing.T) (*oidc.Server, oidc.Storage, oidc.RegisteredClient) {
-	storage := NewTestStorage(t)
+	storage, _ := NewTestStorage(t)
 	hasher := &mockHasher{}
 
 	// 初始化 SecretManager 并添加 HMAC 密钥

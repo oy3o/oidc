@@ -16,7 +16,7 @@ import (
 
 // setupPARTest 初始化 PAR 测试环境
 func setupPARTest(t *testing.T) (oidc.Storage, oidc.RegisteredClient, oidc.Hasher) {
-	storage := NewTestStorage(t)
+	storage, _ := NewTestStorage(t)
 	hasher := &mockHasher{} // 假设 mockHasher 已在 authorize_test.go 中定义，同一包下可见
 
 	// 创建一个机密客户端
@@ -188,7 +188,7 @@ func TestLoadPARSession_Invalid(t *testing.T) {
 }
 
 func TestPAR_Concurrency_OneTimeUse(t *testing.T) {
-	storage := NewTestStorage(t)
+	storage, _ := NewTestStorage(t)
 	ctx := context.Background()
 
 	// 1. 创建一个 PAR Session
@@ -220,7 +220,7 @@ func TestPAR_Concurrency_OneTimeUse(t *testing.T) {
 }
 
 func TestLoadPARSession_Expired(t *testing.T) {
-	storage := NewTestStorage(t)
+	storage, s := NewTestStorage(t)
 	ctx := context.Background()
 
 	requestURI := "urn:ietf:params:oauth:request_uri:expired"
@@ -228,7 +228,7 @@ func TestLoadPARSession_Expired(t *testing.T) {
 
 	err := storage.PARSessionSave(ctx, requestURI, req, 10*time.Millisecond)
 	require.NoError(t, err)
-	time.Sleep(100 * time.Millisecond)
+	s.FastForward(1 * time.Second)
 	_, err = oidc.LoadPARSession(ctx, storage, requestURI)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "expired")

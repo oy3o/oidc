@@ -16,7 +16,7 @@ import (
 
 // setupKeyManagerTest 初始化 KeyManager 测试环境
 func setupKeyManagerTest(t *testing.T) (*oidc.KeyManager, oidc.Storage) {
-	storage := NewTestStorage(t)
+	storage, _ := NewTestStorage(t)
 	km := oidc.NewKeyManager(storage, 100*time.Millisecond)
 	return km, storage
 }

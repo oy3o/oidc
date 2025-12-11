@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alicebob/miniredis/v2"
 	"github.com/google/uuid"
 	"github.com/oy3o/oidc"
 	"github.com/stretchr/testify/assert"
@@ -12,8 +13,8 @@ import (
 )
 
 // setupExchangeTest 初始化测试环境
-func setupExchangeTest(t *testing.T) (*oidc.Server, oidc.Storage, oidc.RegisteredClient) {
-	storage := NewTestStorage(t)
+func setupExchangeTest(t *testing.T) (*oidc.Server, *oidc.TieredStorage, oidc.RegisteredClient, *miniredis.Miniredis) {
+	storage, s := NewTestStorage(t)
 	hasher := &mockHasher{} // 复用 authorize_test.go 中的 mockHasher，或者在此重新定义
 
 	// 初始化 SecretManager 并添加 HMAC 密钥
@@ -23,13 +24,14 @@ func setupExchangeTest(t *testing.T) (*oidc.Server, oidc.Storage, oidc.Registere
 	require.NoError(t, err)
 
 	cfg := oidc.ServerConfig{
-		Issuer:          "https://auth.example.com",
-		Storage:         storage,
-		Hasher:          hasher,
-		SecretManager:   sm,
-		AccessTokenTTL:  1 * time.Hour,
-		RefreshTokenTTL: 24 * time.Hour,
-		IDTokenTTL:      1 * time.Hour,
+		Issuer:                  "https://auth.example.com",
+		Storage:                 storage,
+		Hasher:                  hasher,
+		SecretManager:           sm,
+		AccessTokenTTL:          1 * time.Hour,
+		RefreshTokenTTL:         24 * time.Hour,
+		RefreshTokenGracePeriod: 1 * time.Second,
+		IDTokenTTL:              1 * time.Hour,
 	}
 
 	server, err := oidc.NewServer(cfg)
@@ -55,7 +57,7 @@ func setupExchangeTest(t *testing.T) (*oidc.Server, oidc.Storage, oidc.Registere
 	client, err := storage.ClientCreate(context.Background(), clientMeta)
 	require.NoError(t, err)
 
-	return server, storage, client
+	return server, storage, client, s
 }
 
 // -----------------------------------------------------------------------------
@@ -63,7 +65,7 @@ func setupExchangeTest(t *testing.T) (*oidc.Server, oidc.Storage, oidc.Registere
 // -----------------------------------------------------------------------------
 
 func TestExchange_AuthCode_Success(t *testing.T) {
-	server, storage, client := setupExchangeTest(t)
+	server, storage, client, _ := setupExchangeTest(t)
 	ctx := context.Background()
 
 	// 1. 模拟生成并存储 Authorization Code
@@ -106,7 +108,7 @@ func TestExchange_AuthCode_Success(t *testing.T) {
 }
 
 func TestExchange_AuthCode_PKCE(t *testing.T) {
-	server, storage, client := setupExchangeTest(t)
+	server, storage, client, _ := setupExchangeTest(t)
 	ctx := context.Background()
 
 	// 生成 PKCE 数据
@@ -160,7 +162,7 @@ func TestExchange_AuthCode_PKCE(t *testing.T) {
 }
 
 func TestExchange_AuthCode_RedirectURIMismatch(t *testing.T) {
-	server, storage, client := setupExchangeTest(t)
+	server, storage, client, _ := setupExchangeTest(t)
 	ctx := context.Background()
 
 	code := "uri_code"
@@ -187,7 +189,7 @@ func TestExchange_AuthCode_RedirectURIMismatch(t *testing.T) {
 }
 
 func TestExchange_AuthCode_Replay(t *testing.T) {
-	server, storage, client := setupExchangeTest(t)
+	server, storage, client, _ := setupExchangeTest(t)
 	ctx := context.Background()
 
 	code := "replay_code"
@@ -217,7 +219,7 @@ func TestExchange_AuthCode_Replay(t *testing.T) {
 }
 
 func TestExchange_AuthCode_DPoPBinding(t *testing.T) {
-	server, storage, client := setupExchangeTest(t)
+	server, storage, client, _ := setupExchangeTest(t)
 	ctx := context.Background()
 
 	jkt := "test-thumbprint"
@@ -282,7 +284,7 @@ func TestExchange_AuthCode_DPoPBinding(t *testing.T) {
 // -----------------------------------------------------------------------------
 
 func TestExchange_RefreshToken_Success(t *testing.T) {
-	server, storage, client := setupExchangeTest(t)
+	server, storage, client, s := setupExchangeTest(t)
 	ctx := context.Background()
 
 	// 1. 预先创建一个 Refresh Token
@@ -318,12 +320,13 @@ func TestExchange_RefreshToken_Success(t *testing.T) {
 	assert.NotEqual(t, string(rtRaw), resp.RefreshToken) // 应该轮换了
 
 	// 4. 验证旧 Token 被删除 (MockStorage 简单实现轮换是删除旧的)
+	s.FastForward(2 * time.Second)
 	_, err = storage.RefreshTokenGet(ctx, rtHash)
 	assert.ErrorIs(t, err, oidc.ErrTokenNotFound)
 }
 
 func TestExchange_RefreshToken_ReuseDetection(t *testing.T) {
-	server, _, client := setupExchangeTest(t)
+	server, _, client, _ := setupExchangeTest(t)
 	ctx := context.Background()
 
 	rt, err := oidc.IssueStructuredRefreshToken(ctx, server.SecretManager(), "user-1", 24*time.Hour)
@@ -345,7 +348,7 @@ func TestExchange_RefreshToken_ReuseDetection(t *testing.T) {
 }
 
 func TestExchange_RefreshToken_InvalidFormat(t *testing.T) {
-	server, _, client := setupExchangeTest(t)
+	server, _, client, _ := setupExchangeTest(t)
 	ctx := context.Background()
 
 	// Request by Client B (setupExchangeTest 创建的 client)
@@ -361,7 +364,7 @@ func TestExchange_RefreshToken_InvalidFormat(t *testing.T) {
 }
 
 func TestExchange_RefreshToken_ClientMismatch(t *testing.T) {
-	server, storage, client := setupExchangeTest(t)
+	server, storage, client, _ := setupExchangeTest(t)
 	ctx := context.Background()
 
 	// Token 属于 User A, Client A
@@ -389,7 +392,7 @@ func TestExchange_RefreshToken_ClientMismatch(t *testing.T) {
 }
 
 func TestExchange_RefreshToken_ScopeDownscoping(t *testing.T) {
-	server, storage, client := setupExchangeTest(t)
+	server, storage, client, _ := setupExchangeTest(t)
 	ctx := context.Background()
 
 	rtRaw, _ := oidc.IssueStructuredRefreshToken(ctx, server.Issuer().SecretManager(), "user-1", 24*time.Hour)
@@ -438,7 +441,7 @@ func TestExchange_RefreshToken_ScopeDownscoping(t *testing.T) {
 // -----------------------------------------------------------------------------
 
 func TestExchange_ClientCredentials_Success(t *testing.T) {
-	server, _, client := setupExchangeTest(t)
+	server, _, client, _ := setupExchangeTest(t)
 	ctx := context.Background()
 
 	req := &oidc.TokenRequest{
@@ -463,7 +466,7 @@ func TestExchange_ClientCredentials_Success(t *testing.T) {
 }
 
 func TestExchange_ClientCredentials_InvalidSecret(t *testing.T) {
-	server, _, client := setupExchangeTest(t)
+	server, _, client, _ := setupExchangeTest(t)
 	ctx := context.Background()
 
 	req := &oidc.TokenRequest{
@@ -477,7 +480,7 @@ func TestExchange_ClientCredentials_InvalidSecret(t *testing.T) {
 }
 
 func TestExchange_UnsupportedGrantType(t *testing.T) {
-	server, _, _ := setupExchangeTest(t)
+	server, _, _, _ := setupExchangeTest(t)
 	ctx := context.Background()
 
 	req := &oidc.TokenRequest{
@@ -489,7 +492,7 @@ func TestExchange_UnsupportedGrantType(t *testing.T) {
 }
 
 func TestExchange_ClientCredentials_DPoP(t *testing.T) {
-	server, _, client := setupExchangeTest(t) // 复用 exchange_test.go 的 setup
+	server, _, client, _ := setupExchangeTest(t) // 复用 exchange_test.go 的 setup
 	ctx := context.Background()
 
 	// 模拟 DPoP JKT (通常由 Middleware 提取)

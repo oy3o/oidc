@@ -64,6 +64,16 @@ func (s *PgxStorage) Close() {
 	s.db.Close()
 }
 
+// Stat 获取连接池状态
+func (s *PgxStorage) Stat() *pgxpool.Stat {
+	return s.db.Stat()
+}
+
+// Ping 测试连接池
+func (s *PgxStorage) Ping(ctx context.Context) error {
+	return s.db.Ping(ctx)
+}
+
 // -----------------------------------------------------------------------------
 // 核心：事务管理与 Context 注入
 // -----------------------------------------------------------------------------

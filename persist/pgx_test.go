@@ -217,7 +217,7 @@ func TestCredentialLifecycle(t *testing.T) {
 	// 1. Create Credential
 	cred := &Credential{
 		UserID:     uid,
-		Type:       CredentialTypePassword,
+		Type:       IdentPassword,
 		Identifier: "testuser",
 		Secret:     []byte("hashed_secret"),
 		Verified:   true,
@@ -227,7 +227,7 @@ func TestCredentialLifecycle(t *testing.T) {
 	assert.NotZero(t, cred.ID)
 
 	// 2. Find by Identifier
-	gotCred, err := storage.CredentialGetByIdentifier(ctx, CredentialTypePassword, "testuser")
+	gotCred, err := storage.CredentialGetByIdentifier(ctx, IdentPassword, "testuser")
 	require.NoError(t, err)
 	assert.Equal(t, cred.UserID, gotCred.UserID)
 	assert.Equal(t, cred.Secret, gotCred.Secret)
@@ -236,14 +236,14 @@ func TestCredentialLifecycle(t *testing.T) {
 	cred.Secret = []byte("new_secret")
 	err = storage.CredentialUpdate(ctx, cred)
 	require.NoError(t, err)
-	gotCred, err = storage.CredentialGetByIdentifier(ctx, CredentialTypePassword, "testuser")
+	gotCred, err = storage.CredentialGetByIdentifier(ctx, IdentPassword, "testuser")
 	require.NoError(t, err)
 	assert.Equal(t, oidc.SecretBytes("new_secret"), gotCred.Secret)
 
 	// 4. Delete Credential
 	err = storage.CredentialDeleteByID(ctx, cred.ID)
 	require.NoError(t, err)
-	_, err = storage.CredentialGetByIdentifier(ctx, CredentialTypePassword, "testuser")
+	_, err = storage.CredentialGetByIdentifier(ctx, IdentPassword, "testuser")
 	assert.ErrorIs(t, err, ErrCredentialNotFound)
 }
 

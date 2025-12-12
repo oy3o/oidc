@@ -37,14 +37,14 @@ func (s *PgxStorage) UserCreateInfo(ctx context.Context, userInfo *oidc.UserInfo
 	creds := []*Credential{
 		{
 			UserID:     id,
-			Type:       CredentialTypePassword,
+			Type:       IdentPassword,
 			Identifier: userInfo.Subject,
 			Secret:     oidc.SecretBytes(hashedPassword),
 			Verified:   true,
 		},
 		{
 			UserID:     id,
-			Type:       CredentialTypeEmail,
+			Type:       IdentEmail,
 			Identifier: *userInfo.Email,
 			Secret:     nil,
 			Verified:   true,
@@ -62,11 +62,11 @@ func (s *PgxStorage) UserCreateInfo(ctx context.Context, userInfo *oidc.UserInfo
 
 var (
 	EmailRegex        = regexp.MustCompile(`^(?i)[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,16}$`)
-	IdentifierChecker = map[CredentialType]func(string) bool{
-		CredentialTypeEmail: func(s string) bool {
+	IdentifierChecker = map[IdenType]func(string) bool{
+		IdentEmail: func(s string) bool {
 			return EmailRegex.MatchString(s)
 		},
-		CredentialTypePhone: func(s string) bool {
+		IdentPhone: func(s string) bool {
 			if num, err := phonenumbers.Parse(s, ""); err != nil && phonenumbers.IsValidNumber(num) {
 				return true
 			}
@@ -78,7 +78,7 @@ var (
 // AuthenticateByPassword 通过标识符和密码进行认证
 func (s *PgxStorage) AuthenticateByPassword(ctx context.Context, identifier, password string) (oidc.BinaryUUID, error) {
 	// 1. 智能识别标识符类型
-	var credType CredentialType
+	var credType IdenType
 	var check func(string) bool
 	for credType, check = range IdentifierChecker {
 		if check(identifier) {

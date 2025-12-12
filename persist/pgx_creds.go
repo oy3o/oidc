@@ -15,7 +15,7 @@ func (s *PgxStorage) UserUpdatePassword(ctx context.Context, userID oidc.BinaryU
 		Set("updated_at", time.Now()).
 		Where(map[string]interface{}{
 			"user_id": userID,
-			"type":    CredentialTypePassword,
+			"type":    IdentPassword,
 		}).ToSql()
 	if err != nil {
 		return err
@@ -59,7 +59,7 @@ func (s *PgxStorage) CredentialDeleteByID(ctx context.Context, credID uint64) er
 	return nil
 }
 
-func (s *PgxStorage) CredentialGetByIdentifier(ctx context.Context, credType CredentialType, identifier string) (*Credential, error) {
+func (s *PgxStorage) CredentialGetByIdentifier(ctx context.Context, credType IdenType, identifier string) (*Credential, error) {
 	var cred Credential
 	query, args, err := psql.Select("*").
 		From("credentials").

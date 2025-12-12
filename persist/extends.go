@@ -22,7 +22,7 @@ type CredentialManager interface {
 	CredentialCreate(ctx context.Context, cred *Credential) error
 	CredentialUpdate(ctx context.Context, cred *Credential) error
 	CredentialDeleteByID(ctx context.Context, credID uint64) error
-	CredentialGetByIdentifier(ctx context.Context, credType CredentialType, identifier string) (*Credential, error)
+	CredentialGetByIdentifier(ctx context.Context, idenType IdenType, identifier string) (*Credential, error)
 }
 
 // ProfileManager 处理用户扩展资料

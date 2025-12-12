@@ -9,14 +9,14 @@ import (
 	"github.com/oy3o/oidc"
 )
 
-// CredentialType 使用 string 枚举，数据库存 varchar
-type CredentialType string
+// IdenType 使用 string 枚举，数据库存 varchar
+type IdenType string
 
 const (
-	CredentialTypePassword CredentialType = "password" // 用于存密码Hash，Identifier是id
-	CredentialTypeEmail    CredentialType = "email"    // 仅用于标识邮箱登录（无密码，Magic Link）
-	CredentialTypePhone    CredentialType = "phone"    // 手机验证码登录（无密码，Magic Link）
-	CredentialTypeWebAuthn CredentialType = "webauthn" // Passkeys / FIDO2
+	IdentPassword IdenType = "password" // 用于存密码Hash，Identifier是id
+	IdentEmail    IdenType = "email"    // 仅用于标识邮箱登录（无密码，Magic Link）
+	IdentPhone    IdenType = "phone"    // 手机验证码登录（无密码，Magic Link）
+	IdentWebAuthn IdenType = "webauthn" // Passkeys / FIDO2
 )
 
 type Credential struct {
@@ -32,7 +32,7 @@ type Credential struct {
 	// 语义：在某种认证类型下，标识符必须唯一。
 	// 索引名: idx_cred_type_identifier (自定义索引名)
 	// Type: 凭证类型 (password, google, email...)
-	Type CredentialType `db:"type"`
+	Type IdenType `db:"type"`
 
 	// Identifier: 唯一标识 (username, email, phone number, openid_sub)
 	Identifier string `db:"identifier"`

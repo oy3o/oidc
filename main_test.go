@@ -56,7 +56,7 @@ func TestMain(m *testing.M) {
 	PoolOnce.Do(func() {
 		container, err := postgres.Run(
 			ctx,
-			"docker.io/postgres:18-alpine",
+			"docker.io/postgres:18-trixie",
 			postgres.WithInitScripts("./persist/init.sql"),
 			postgres.BasicWaitStrategies(),
 		)

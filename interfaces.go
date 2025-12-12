@@ -456,7 +456,7 @@ type UserAuthenticator interface {
 	// AuthenticateByPassword 根据用户名和密码进行认证。
 	// 成功时返回用户 ID，失败时应返回 ErrUserNotFound。
 	// 注意：此方法应实现速率限制和防暴力破解机制。
-	AuthenticateByPassword(ctx context.Context, username, password string) (BinaryUUID, error)
+	AuthenticateByPassword(ctx context.Context, username, password string) (BinaryUUID, string, error)
 }
 
 // ---------------------------------------------------------------------------

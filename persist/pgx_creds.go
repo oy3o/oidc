@@ -59,12 +59,12 @@ func (s *PgxStorage) CredentialDeleteByID(ctx context.Context, credID uint64) er
 	return nil
 }
 
-func (s *PgxStorage) CredentialGetByIdentifier(ctx context.Context, credType IdenType, identifier string) (*Credential, error) {
+func (s *PgxStorage) CredentialGetByIdentifier(ctx context.Context, idenType IdenType, identifier string) (*Credential, error) {
 	var cred Credential
 	query, args, err := psql.Select("*").
 		From("credentials").
 		Where(map[string]interface{}{
-			"type":       credType,
+			"type":       idenType,
 			"identifier": identifier,
 		}).ToSql()
 	if err != nil {

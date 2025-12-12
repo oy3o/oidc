@@ -78,19 +78,19 @@ var (
 // AuthenticateByPassword 通过标识符和密码进行认证
 func (s *PgxStorage) AuthenticateByPassword(ctx context.Context, identifier, password string) (oidc.BinaryUUID, error) {
 	// 1. 智能识别标识符类型
-	var credType IdenType
+	var idenType IdenType
 	var check func(string) bool
-	for credType, check = range IdentifierChecker {
+	for idenType, check = range IdentifierChecker {
 		if check(identifier) {
 			break
 		}
 	}
-	if credType == "" {
+	if idenType == "" {
 		return oidc.BinaryUUID(uuid.Nil), oidc.ErrInvalidIdentifier
 	}
 
 	// 2. 查询凭证
-	cred, err := s.CredentialGetByIdentifier(ctx, credType, identifier)
+	cred, err := s.CredentialGetByIdentifier(ctx, idenType, identifier)
 	if err != nil {
 		return oidc.BinaryUUID(uuid.Nil), err
 	}

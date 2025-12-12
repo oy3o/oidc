@@ -91,7 +91,7 @@ func (s *PgxStorage) UserDelete(ctx context.Context, id oidc.BinaryUUID) error {
 	if err != nil {
 		return err
 	}
-	tag, err := s.getDB(ctx).Exec(ctx, query, args...)
+	tag, err := s.DB(ctx).Exec(ctx, query, args...)
 	if err != nil {
 		return err
 	}
@@ -107,7 +107,7 @@ func (s *PgxStorage) UserGetByID(ctx context.Context, id oidc.BinaryUUID) (*User
 	if err != nil {
 		return nil, err
 	}
-	if err := pgxscan.Get(ctx, s.getDB(ctx), &user, query, args...); err != nil {
+	if err := pgxscan.Get(ctx, s.DB(ctx), &user, query, args...); err != nil {
 		if pgxscan.NotFound(err) {
 			return nil, ErrUserNotFound
 		}
@@ -125,7 +125,7 @@ func (s *PgxStorage) UserUpdateStatus(ctx context.Context, id oidc.BinaryUUID, s
 	if err != nil {
 		return err
 	}
-	tag, err := s.getDB(ctx).Exec(ctx, query, args...)
+	tag, err := s.DB(ctx).Exec(ctx, query, args...)
 	if err != nil {
 		return err
 	}
@@ -144,7 +144,7 @@ func (s *PgxStorage) ProfileGetByUserID(ctx context.Context, userID oidc.BinaryU
 		return nil, err
 	}
 
-	if err := pgxscan.Get(ctx, s.getDB(ctx), &profile, query, args...); err != nil {
+	if err := pgxscan.Get(ctx, s.DB(ctx), &profile, query, args...); err != nil {
 		if pgxscan.NotFound(err) {
 			return nil, ErrUserNotFound // Profile not found often means user context issue
 		}
@@ -184,7 +184,7 @@ func (s *PgxStorage) ProfileUpdate(ctx context.Context, profile *Profile) error 
 		return err
 	}
 
-	tag, err := s.getDB(ctx).Exec(ctx, query, args...)
+	tag, err := s.DB(ctx).Exec(ctx, query, args...)
 	if err != nil {
 		if isUniqueViolation(err) {
 			return ErrIdentifierExists

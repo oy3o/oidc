@@ -68,9 +68,9 @@ func (s *PgxStorage) Close() {
 // 核心：事务管理与 Context 注入
 // -----------------------------------------------------------------------------
 
-// getDB 从 context 获取当前事务，如果不存在则返回连接池。
+// DB 从 context 获取当前事务，如果不存在则返回连接池。
 // 这是实现“读写自动跟随事务”的关键。
-func (s *PgxStorage) getDB(ctx context.Context) DBTX {
+func (s *PgxStorage) DB(ctx context.Context) DBTX {
 	if uow, ok := ctx.Value(txKey{}).(*PgxUOW); ok {
 		return uow.Tx
 	}

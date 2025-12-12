@@ -17,7 +17,7 @@ func (s *PgxStorage) RefreshTokenCreate(ctx context.Context, session *oidc.Refre
 		return err
 	}
 
-	_, err = s.getDB(ctx).Exec(ctx, query, args...)
+	_, err = s.DB(ctx).Exec(ctx, query, args...)
 	return err
 }
 
@@ -25,7 +25,7 @@ func (s *PgxStorage) RefreshTokenCreate(ctx context.Context, session *oidc.Refre
 // 它会自动检测上下文中是否有事务，并使用正确的执行器。
 func (s *PgxStorage) RefreshTokenGet(ctx context.Context, tokenID oidc.Hash256) (*oidc.RefreshTokenSession, error) {
 	var model oidc.RefreshTokenSession
-	executor := s.getDB(ctx) // 获取 Pool 或 Tx
+	executor := s.DB(ctx) // 获取 Pool 或 Tx
 
 	query, args, err := psql.Select("*").
 		From("oidc_refresh_tokens").
@@ -91,7 +91,7 @@ func (s *PgxStorage) RefreshTokenRotate(ctx context.Context, oldTokenID oidc.Has
 
 // RefreshTokenRevoke 撤销（删除）令牌
 func (s *PgxStorage) RefreshTokenRevoke(ctx context.Context, tokenID oidc.Hash256) error {
-	executor := s.getDB(ctx)
+	executor := s.DB(ctx)
 
 	query, args, err := psql.Delete("oidc_refresh_tokens").
 		Where(map[string]interface{}{"id": tokenID}).
@@ -118,7 +118,7 @@ func (s *PgxStorage) RefreshTokenRevokeUser(ctx context.Context, userID oidc.Bin
 
 	var ids []oidc.Hash256
 	// Select 此时用于处理 RETURNING 的结果
-	if err := pgxscan.Select(ctx, s.getDB(ctx), &ids, query, args...); err != nil {
+	if err := pgxscan.Select(ctx, s.DB(ctx), &ids, query, args...); err != nil {
 		return nil, err
 	}
 
@@ -135,7 +135,7 @@ func (s *PgxStorage) RefreshTokenListByUser(ctx context.Context, userID oidc.Bin
 	}
 
 	var sessions []*oidc.RefreshTokenSession
-	if err := pgxscan.Select(ctx, s.getDB(ctx), &sessions, query, args...); err != nil {
+	if err := pgxscan.Select(ctx, s.DB(ctx), &sessions, query, args...); err != nil {
 		return nil, err
 	}
 

@@ -17,7 +17,7 @@ func (s *PgxStorage) ClientGetByID(ctx context.Context, clientID oidc.BinaryUUID
 		return nil, err
 	}
 
-	if err := pgxscan.Get(ctx, s.getDB(ctx), &model, query, args...); err != nil {
+	if err := pgxscan.Get(ctx, s.DB(ctx), &model, query, args...); err != nil {
 		if pgxscan.NotFound(err) {
 			return nil, oidc.ErrClientNotFound
 		}
@@ -44,7 +44,7 @@ func (s *PgxStorage) ClientCreate(ctx context.Context, metadata *oidc.ClientMeta
 		return nil, err
 	}
 
-	if _, err := s.getDB(ctx).Exec(ctx, query, args...); err != nil {
+	if _, err := s.DB(ctx).Exec(ctx, query, args...); err != nil {
 		return nil, err
 	}
 	return metadata, nil
@@ -72,7 +72,7 @@ func (s *PgxStorage) ClientUpdate(ctx context.Context, clientID oidc.BinaryUUID,
 		return nil, err
 	}
 
-	tag, err := s.getDB(ctx).Exec(ctx, query, args...)
+	tag, err := s.DB(ctx).Exec(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -89,7 +89,7 @@ func (s *PgxStorage) ClientDeleteByID(ctx context.Context, clientID oidc.BinaryU
 	if err != nil {
 		return err
 	}
-	_, err = s.getDB(ctx).Exec(ctx, query, args...)
+	_, err = s.DB(ctx).Exec(ctx, query, args...)
 	return err
 }
 
@@ -100,7 +100,7 @@ func (s *PgxStorage) ClientListByOwner(ctx context.Context, ownerID oidc.BinaryU
 		return nil, err
 	}
 
-	if err := pgxscan.Select(ctx, s.getDB(ctx), &models, query, args...); err != nil {
+	if err := pgxscan.Select(ctx, s.DB(ctx), &models, query, args...); err != nil {
 		return nil, err
 	}
 
@@ -128,7 +128,7 @@ func (s *PgxStorage) ClientListAll(ctx context.Context, query oidc.ListQuery) ([
 		return nil, err
 	}
 
-	if err := pgxscan.Select(ctx, s.getDB(ctx), &models, sql, args...); err != nil {
+	if err := pgxscan.Select(ctx, s.DB(ctx), &models, sql, args...); err != nil {
 		return nil, err
 	}
 

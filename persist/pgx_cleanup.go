@@ -27,7 +27,7 @@ func (s *PgxStorage) Cleanup(ctx context.Context) (int64, error) {
 			return err
 		}
 
-		commandTag, err := s.getDB(ctx).Exec(ctx, query, args...)
+		commandTag, err := s.DB(ctx).Exec(ctx, query, args...)
 		if err != nil {
 			return err
 		}

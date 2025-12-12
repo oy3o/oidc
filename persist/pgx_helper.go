@@ -108,7 +108,7 @@ func (s *PgxStorage) AuthenticateByPassword(ctx context.Context, identifier, pas
 type IdentifierVerifier interface {
 	// SendVerificationCode 生成、存储并发送一个验证码。
 	// target 可以是邮箱地址或手机号码。
-	SendVerificationCode(ctx context.Context, identType, purpose, target string) error
+	SendVerificationCode(ctx context.Context, identType IdenType, purpose, target string) error
 
 	// VerifyCode 验证用户提供的验证码是否正确。
 	VerifyCode(ctx context.Context, purpose, target, code string) error
@@ -141,7 +141,7 @@ func AuthenticateByPassword(ctx context.Context, s *PgxStorage, issuer *oidc.Iss
 
 	// 3. 检查用户是否激活
 	if user.IsPending() {
-		if err := idenifierVerifier.SendVerificationCode(ctx, identType, "login", req.Identifier); err != nil {
+		if err := idenifierVerifier.SendVerificationCode(ctx, IdenType(identType), "login", req.Identifier); err != nil {
 			return nil, err
 		}
 		return nil, oidc.ErrUserNotConfirmed

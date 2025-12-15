@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"github.com/oy3o/o11y"
+	"github.com/oy3o/singleflight"
 	"github.com/puzpuzpuz/xsync/v4"
-	"golang.org/x/sync/singleflight"
 )
 
 const (
@@ -129,7 +129,7 @@ type RemoteKeySet struct {
 	cacheDuration time.Duration
 
 	// 用于防止缓存击穿 (singleflight)
-	requestGroup singleflight.Group
+	requestGroup *singleflight.Group[string, *struct{}]
 
 	// 后台刷新控制
 	refreshTicker *time.Ticker
@@ -155,6 +155,7 @@ func NewRemoteKeySet(ctx context.Context, jwksURI string, httpClient *http.Clien
 		ctx:           ctx,
 		cacheDuration: 5 * time.Minute, // 默认缓存 5 分钟
 		cachedKeys:    xsync.NewMap[string, crypto.PublicKey](),
+		requestGroup:  singleflight.NewGroup[string, *struct{}](),
 		stopChan:      make(chan struct{}),
 	}
 
@@ -205,7 +206,7 @@ func (r *RemoteKeySet) GetKey(ctx context.Context, kid string) (crypto.PublicKey
 	}
 
 	// 2. 缓存未命中，同步获取（使用 singleflight 防止惊群）
-	_, err, _ := r.requestGroup.Do("fetch_jwks", func() (interface{}, error) {
+	_, err, _ := r.requestGroup.Do(ctx, "fetch_jwks", func(ctx context.Context) (*struct{}, error) {
 		// Double-check inside singleflight
 		if _, ok := r.cachedKeys.Load(kid); ok {
 			return nil, nil
@@ -363,7 +364,7 @@ func (r *RemoteKeySet) doBackgroundRefresh() {
 // triggerRefresh 主动触发一次刷新（用于缓存过期时）
 func (r *RemoteKeySet) triggerRefresh(ctx context.Context) {
 	// 使用 singleflight 防止多次触发
-	_, _, _ = r.requestGroup.Do("trigger_refresh", func() (interface{}, error) {
+	_, _, _ = r.requestGroup.Do(ctx, "trigger_refresh", func(ctx context.Context) (*struct{}, error) {
 		jwks, ttl, err := r.fetchJWKS(ctx)
 		if err != nil {
 			// 刷新失败，保留旧缓存

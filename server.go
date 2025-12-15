@@ -8,8 +8,8 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/oy3o/o11y"
+	"github.com/oy3o/singleflight"
 	"go.opentelemetry.io/otel/attribute"
-	"golang.org/x/sync/singleflight"
 )
 
 // ServerConfig 用于初始化 OIDC Server 的配置
@@ -341,12 +341,12 @@ func (s *Server) Discovery() *Discovery {
 // ---------------------------------------------------------------------------
 
 // SingleFlight 合并并发请求, 防止同一个 Token 在极短时间内发起数万次攻击
-var verifierGroup singleflight.Group
+var verifierGroup = singleflight.NewGroup[string, *AccessTokenClaims]()
 
 // VerifyAccessToken 用于验证 Bearer Token 的有效性。
 // 此实现不校验 Audience，因为 UserInfo 端点信任本 Issuer 签发的任何包含 openid scope 的 Token。
 func (s *Server) VerifyAccessToken(ctx context.Context, tokenStr string) (*AccessTokenClaims, error) {
-	val, err, _ := verifierGroup.Do(tokenStr, func() (any, error) {
+	token, err, _ := verifierGroup.Do(ctx, tokenStr, func(ctx context.Context) (*AccessTokenClaims, error) {
 		var claims *AccessTokenClaims
 		// 我们把 o11y 放在 Do 里面，意味着只有“执行者”会产生详细的 Trace 和 Log
 		// 这对防 DDoS 是好事，减少了日志系统压力
@@ -383,15 +383,15 @@ func (s *Server) VerifyAccessToken(ctx context.Context, tokenStr string) (*Acces
 	}
 
 	// 类型断言：将 interface{} 还原为具体的类型
-	return val.(*AccessTokenClaims), nil
+	return token, nil
 }
 
 // SingleFlight 合并并发请求, 防止同一个 Token 在极短时间内发起数万次攻击
-var validateGroup singleflight.Group
+var validateGroup = singleflight.NewGroup[string, *AccessTokenClaims]()
 
 // ParseAccessToken 解析并验证 Token 签名和 Issuer，但不检查撤销状态。
 func (s *Server) ParseAccessToken(ctx context.Context, tokenStr string) (*AccessTokenClaims, error) {
-	val, err, _ := validateGroup.Do(tokenStr, func() (any, error) {
+	token, err, _ := validateGroup.Do(ctx, tokenStr, func(ctx context.Context) (*AccessTokenClaims, error) {
 		// 1. 定义 KeyFunc 查找公钥
 		keyFunc := func(token *jwt.Token) (interface{}, error) {
 			// 强制校验签名算法类型，防止 "none" 算法攻击
@@ -427,5 +427,5 @@ func (s *Server) ParseAccessToken(ctx context.Context, tokenStr string) (*Access
 		return nil, err
 	}
 
-	return val.(*AccessTokenClaims), nil
+	return token, nil
 }

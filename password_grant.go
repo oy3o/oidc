@@ -35,7 +35,7 @@ func PasswordGrant(ctx context.Context, storage Storage, hasher Hasher, issuer *
 		return nil, fmt.Errorf("%w: username and password are required", ErrInvalidRequest)
 	}
 
-	userID, err := storage.AuthenticateByPassword(ctx, req.Username, req.Password)
+	userID, _, err := storage.AuthenticateByPassword(ctx, req.Username, req.Password)
 	if err != nil {
 		// 统一错误响应，防止用户枚举攻击
 		return nil, fmt.Errorf("%w: invalid username or password", ErrInvalidGrant)

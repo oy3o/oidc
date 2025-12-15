@@ -125,8 +125,13 @@ type AuthResult struct {
 	PasswordChangeToken string
 }
 
+type AuthStorage interface {
+	AuthenticateByPassword(ctx context.Context, identifier string, password string) (oidc.BinaryUUID, string, error)
+	UserGetByID(ctx context.Context, id oidc.BinaryUUID) (*User, error)
+}
+
 // AuthenticateByPassword 通过标识符和密码进行认证
-func AuthenticateByPassword(ctx context.Context, s *PgxStorage, issuer *oidc.Issuer, idenifierVerifier IdentifierVerifier, req *AuthRequest) (*AuthResult, error) {
+func AuthenticateByPassword(ctx context.Context, s AuthStorage, issuer *oidc.Issuer, idenifierVerifier IdentifierVerifier, req *AuthRequest) (*AuthResult, error) {
 	// 1. 认证
 	userID, identType, err := s.AuthenticateByPassword(ctx, req.Identifier, req.Password)
 	if err != nil {

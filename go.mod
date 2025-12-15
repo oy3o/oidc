@@ -14,6 +14,7 @@ require (
 	github.com/nyaruka/phonenumbers v1.6.7
 	github.com/oy3o/httpx v1.4.4
 	github.com/oy3o/o11y v1.4.1
+	github.com/oy3o/singleflight v1.0.1
 	github.com/puzpuzpuz/xsync/v4 v4.2.0
 	github.com/redis/go-redis/v9 v9.17.0
 	github.com/rs/zerolog v1.34.0
@@ -22,7 +23,6 @@ require (
 	go.opentelemetry.io/otel v1.38.0
 	go.step.sm/crypto v0.74.0
 	golang.org/x/crypto v0.45.0
-	golang.org/x/sync v0.18.0
 )
 
 require (
@@ -127,6 +127,7 @@ require (
 	golang.org/x/arch v0.0.0-20210923205945-b76863e36670 // indirect
 	golang.org/x/exp v0.0.0-20250620022241-b7579e27df2b // indirect
 	golang.org/x/net v0.47.0 // indirect
+	golang.org/x/sync v0.19.0 // indirect
 	golang.org/x/sys v0.38.0 // indirect
 	golang.org/x/text v0.31.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20251124214823-79d6a2a48846 // indirect

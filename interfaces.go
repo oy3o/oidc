@@ -38,6 +38,9 @@ type RegisteredClient interface {
 	// 提供给Redis一个序列化和反序列化的方法
 	Serialize() (string, error)
 	Deserialize(string) error
+
+	// Metadata 获取客户端的元数据以便进行更新
+	Metadata() *ClientMetadata
 }
 
 // ClientFactory 定义了创建客户端的接口。
@@ -78,6 +81,7 @@ type ClientMetadata struct {
 }
 
 func (ClientMetadata) TableName() string            { return "oidc_clients" }
+func (c *ClientMetadata) Metadata() *ClientMetadata { return c }
 func (c *ClientMetadata) GetID() BinaryUUID         { return c.ID }
 func (c *ClientMetadata) GetRedirectURIs() []string { return c.RedirectURIs }
 func (c *ClientMetadata) GetGrantTypes() []string   { return c.GrantTypes }

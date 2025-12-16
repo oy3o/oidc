@@ -168,7 +168,7 @@ func ClientUpdate(ctx context.Context, storage ClientStorage, req *ClientUpdateR
 	}
 
 	// 1. 获取现有客户端 (确保存在)
-	_, err = storage.ClientGetByID(ctx, clientID)
+	oldClient, err := storage.ClientGetByID(ctx, clientID)
 	if err != nil {
 		return nil, err
 	}
@@ -179,35 +179,35 @@ func ClientUpdate(ctx context.Context, storage ClientStorage, req *ClientUpdateR
 	}
 
 	// 3. 准备更新数据
-	// 注意：通常 Update 不会重置 Secret，除非显式请求 Rotate。
-	// 这里保留原 Secret，仅更新元数据。
-	// 若需支持 Rotate Secret，应单独提供 RotateSecret 接口或通过特定参数触发。
-
-	// 从 oldClient 恢复部分不可变更或未变更的数据
-	// 注意：这里假设 RegisteredClient 接口暴露了获取 Metadata 的方法，或者直接转换
-	// 为简化，这里演示逻辑：
-
-	metadata := &ClientMetadata{
-		ID:                      clientID,
-		RedirectURIs:            req.RedirectURIs,
-		GrantTypes:              req.GrantTypes,
-		Scope:                   req.Scope,
-		Name:                    req.ClientName,
-		LogoURI:                 req.LogoURI,
-		TokenEndpointAuthMethod: req.TokenEndpointAuthMethod,
-		IsConfidentialClient:    isConfidentialClient(req.TokenEndpointAuthMethod),
+	metadata := oldClient.Metadata()
+	if len(req.RedirectURIs) > 0 {
+		metadata.RedirectURIs = req.RedirectURIs
 	}
+	if len(req.GrantTypes) > 0 {
+		metadata.GrantTypes = req.GrantTypes
+	}
+	if req.Scope != "" {
+		metadata.Scope = req.Scope
+	}
+	if req.ClientName != "" {
+		metadata.Name = req.ClientName
+	}
+	if req.LogoURI != "" {
+		metadata.LogoURI = req.LogoURI
+	}
+	metadata.TokenEndpointAuthMethod = req.TokenEndpointAuthMethod
+	metadata.IsConfidentialClient = isConfidentialClient(req.TokenEndpointAuthMethod)
 
-	updated, err := storage.ClientUpdate(ctx, clientID, metadata)
+	_, err = storage.ClientUpdate(ctx, clientID, metadata)
 	if err != nil {
 		return nil, err
 	}
 
 	return &ClientRegistrationResponse{
-		ClientID:     updated.GetID().String(),
-		RedirectURIs: updated.GetRedirectURIs(),
-		ClientName:   req.ClientName, // 简化返回
-		Scope:        req.Scope,
+		ClientID:     metadata.ID.String(),
+		RedirectURIs: metadata.RedirectURIs,
+		ClientName:   metadata.Name, // 简化返回
+		Scope:        metadata.Scope,
 	}, nil
 }
 

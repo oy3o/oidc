@@ -161,9 +161,6 @@ type Profile struct {
 	PhoneNumberVerified bool    `db:"phone_number_verified" json:"phone_number_verified,omitempty"`
 
 	// 4. 时间字段
-	// GORM 依然会根据类型自动识别 autoCreateTime/autoUpdateTime 行为，
-	// 但如果不引入 gorm 包，无法使用 gorm.DeletedAt 等类型，
-	// 需要用 autoCreateTime 标签显式声明 (注意：GORM 识别 db 标签里的 autoCreateTime 关键字)
 	CreatedAt time.Time `db:"created_at" json:"-"`
 	UpdatedAt time.Time `db:"updated_at" json:"updated_at,omitempty"`
 

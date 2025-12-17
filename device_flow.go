@@ -236,7 +236,7 @@ func DeviceTokenExchange(ctx context.Context, storage Storage, issuer *Issuer, r
 // generateUserCode 生成易读的 8 位用户码 (BCDFGHJKLMNPQRSTVWXZ)
 func generateUserCode() (string, error) {
 	const charset = "BCDFGHJKLMNPQRSTVWXZ"
-	b := make([]byte, 8)
+	var b [8]byte
 	for i := range b {
 		num, err := rand.Int(rand.Reader, big.NewInt(int64(len(charset))))
 		if err != nil {
@@ -244,5 +244,5 @@ func generateUserCode() (string, error) {
 		}
 		b[i] = charset[num.Int64()]
 	}
-	return string(b), nil
+	return string(b[:]), nil
 }

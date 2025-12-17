@@ -23,12 +23,12 @@ var verifierRegex = regexp.MustCompile(`^[A-Za-z0-9\-\._~]+$`)
 // 长度默认为 43 字符（32 字节熵）。
 func GeneratePKCEVerifier() (string, error) {
 	// RFC 建议使用 32 字节的随机序列，然后进行 base64url 编码
-	data := make([]byte, 32)
-	if _, err := rand.Read(data); err != nil {
+	var data [32]byte
+	if _, err := rand.Read(data[:]); err != nil {
 		return "", ErrPKCERandomnessGenerationFailed
 	}
 	// RawURLEncoding 是无填充的 Base64URL
-	return base64.RawURLEncoding.EncodeToString(data), nil
+	return base64.RawURLEncoding.EncodeToString(data[:]), nil
 }
 
 // ComputePKCEChallenge 根据给定的 Verifier 和 Method 计算 Challenge。

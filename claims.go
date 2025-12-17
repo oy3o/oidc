@@ -111,8 +111,10 @@ func (t RefreshToken) HashForDB() Hash256 {
 // IssueStructuredRefreshToken 生成一个结构化的 Refresh Token
 func IssueStructuredRefreshToken(ctx context.Context, sm *SecretManager, userID string, ttl time.Duration) (RefreshToken, error) {
 	// 1. 随机部分 (用于防重放和数据库索引)
-	randBytes := make([]byte, 32)
-	rand.Read(randBytes)
+	var randBytes [32]byte
+	if _, err := rand.Read(randBytes[:]); err != nil {
+		return "", err
+	}
 
 	// 2. 元数据
 	meta := struct {
@@ -138,7 +140,7 @@ func IssueStructuredRefreshToken(ctx context.Context, sm *SecretManager, userID 
 	payload := fmt.Sprintf("%s.%s.%s",
 		kid,
 		base64.RawURLEncoding.EncodeToString(metaJson),
-		base64.RawURLEncoding.EncodeToString(randBytes),
+		base64.RawURLEncoding.EncodeToString(randBytes[:]),
 	)
 
 	// 5. 签名 (使用服务器内部密钥，不对外公开)

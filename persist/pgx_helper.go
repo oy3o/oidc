@@ -89,18 +89,24 @@ func (s *PgxStorage) AuthenticateByPassword(ctx context.Context, identifier, pas
 		return oidc.BinaryUUID(uuid.Nil), "", oidc.ErrInvalidIdentifier
 	}
 
-	// 2. 查询凭证
-	cred, err := s.CredentialGetByIdentifier(ctx, idenType, identifier)
+	// 2. 查询凭证对应的用户ID
+	idCred, err := s.CredentialGetByIdentifier(ctx, idenType, identifier)
 	if err != nil {
 		return oidc.BinaryUUID(uuid.Nil), "", err
 	}
 
-	// 3. 验证密码
-	if err := s.hasher.Compare(ctx, cred.Secret, []byte(password)); err != nil {
+	// 3. 查询密码
+	pswCred, err := s.CredentialGetByIdentifier(ctx, IdentPassword, idCred.UserID.String())
+	if err != nil {
 		return oidc.BinaryUUID(uuid.Nil), "", err
 	}
 
-	return cred.UserID, string(idenType), nil
+	// 4. 验证密码
+	if err := s.hasher.Compare(ctx, pswCred.Secret, []byte(password)); err != nil {
+		return oidc.BinaryUUID(uuid.Nil), "", err
+	}
+
+	return idCred.UserID, string(idenType), nil
 }
 
 // 业务逻辑
@@ -146,9 +152,12 @@ func AuthenticateByPassword(ctx context.Context, s AuthStorage, issuer *oidc.Iss
 
 	// 3. 检查用户是否激活
 	if user.IsPending() {
-		if err := idenifierVerifier.SendVerificationCode(ctx, IdenType(identType), "login", req.Identifier); err != nil {
-			return nil, err
-		}
+		go func() {
+			// 使用独立的 context 处理异步发送，避免 caller context 取消导致发送中断
+			if err := idenifierVerifier.SendVerificationCode(context.Background(), IdenType(identType), "login", req.Identifier); err != nil {
+				// 实际项目中应记录日志，这里由于无法直接访问 logger，暂时忽略或依赖 Verifier 内部日志
+			}
+		}()
 		return nil, oidc.ErrUserNotConfirmed
 	}
 

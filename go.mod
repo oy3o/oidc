@@ -14,7 +14,7 @@ require (
 	github.com/nyaruka/phonenumbers v1.6.7
 	github.com/oy3o/httpx v1.4.6
 	github.com/oy3o/o11y v1.4.3
-	github.com/oy3o/singleflight v1.0.1
+	github.com/oy3o/singleflight v1.0.2
 	github.com/puzpuzpuz/xsync/v4 v4.2.0
 	github.com/redis/go-redis/v9 v9.17.2
 	github.com/rs/zerolog v1.34.0

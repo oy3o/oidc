@@ -154,9 +154,7 @@ func AuthenticateByPassword(ctx context.Context, s AuthStorage, issuer *oidc.Iss
 	if user.IsPending() {
 		go func() {
 			// 使用独立的 context 处理异步发送，避免 caller context 取消导致发送中断
-			if err := idenifierVerifier.SendVerificationCode(context.Background(), IdenType(identType), "login", req.Identifier); err != nil {
-				// 实际项目中应记录日志，这里由于无法直接访问 logger，暂时忽略或依赖 Verifier 内部日志
-			}
+			idenifierVerifier.SendVerificationCode(context.Background(), IdenType(identType), "login", req.Identifier)
 		}()
 		return nil, oidc.ErrUserNotConfirmed
 	}

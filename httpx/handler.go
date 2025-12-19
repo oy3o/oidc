@@ -1,306 +1,144 @@
 package httpx
 
 import (
-	"errors"
+	"context"
 	"net/http"
-
-	"github.com/bytedance/sonic"
-	"github.com/rs/zerolog/log"
 
 	"github.com/oy3o/httpx"
 	"github.com/oy3o/oidc"
 )
 
-// populateCredentials 辅助函数：如果 struct 中未绑定 ClientID/Secret，尝试从 Basic Auth 获取
-func populateCredentials(r *http.Request, clientID, clientSecret *string) {
-	if uid, pwd, ok := r.BasicAuth(); ok {
-		if *clientID == "" {
-			*clientID = uid
-		}
-		if *clientSecret == "" {
-			*clientSecret = pwd
-		}
-	}
-}
-
-// TokenHandler 封装 OIDC Token Endpoint (/token)。
+// TokenHandler [POST] /token
+// RFC 6749: Token Endpoint
 func TokenHandler(s *oidc.Server) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		// RFC 6749 Section 5.1: Cache-Control: no-store
-		w.Header().Set("Cache-Control", "no-store")
-		w.Header().Set("Pragma", "no-cache")
-		w.Header().Set("Content-Type", "application/json;charset=UTF-8")
-
-		var req oidc.TokenRequest
-		if err := httpx.Bind(r, &req); err != nil {
-			Error(w, oidc.InvalidRequestError("failed to parse request: "+err.Error()))
-			return
-		}
-
-		// 补充 Basic Auth 支持
-		populateCredentials(r, &req.ClientID, &req.ClientSecret)
-
-		resp, err := s.Exchange(r.Context(), &req)
+	return httpx.NewResponder(func(ctx context.Context, req *oidc.TokenRequest) (*OidcResponse, error) {
+		resp, err := s.Exchange(ctx, req)
 		if err != nil {
-			Error(w, err)
-			return
+			return nil, err
 		}
 
-		w.WriteHeader(http.StatusOK)
-		if err := sonic.ConfigDefault.NewEncoder(w).Encode(resp); err != nil {
-			log.Error().Err(err).Msg("failed to encode response")
-			return
-		}
-	}
+		return &OidcResponse{
+			Data:    resp,
+			NoCache: true, // 必须 No-Store
+		}, nil
+	}, httpx.AddBinders(&httpx.ClientAuthBinder{}), httpx.WithErrorFunc(Error))
 }
 
-// DiscoveryHandler 封装 OIDC Discovery Endpoint
-// GET /.well-known/openid-configuration
-// 必须允许 CORS
+// DiscoveryHandler [GET] /.well-known/openid-configuration
+// OIDC Discovery
 func DiscoveryHandler(s *oidc.Server) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		// 允许跨域，以便前端应用读取配置
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Content-Type", "application/json;charset=UTF-8")
-		w.Header().Set("Cache-Control", "public, max-age=3600")
-		if err := sonic.ConfigDefault.NewEncoder(w).Encode(s.Discovery()); err != nil {
-			log.Error().Err(err).Msg("failed to encode response")
-			return
-		}
-	}
+	// struct{} 表示无需绑定任何参数
+	return httpx.NewResponder(func(ctx context.Context, _ *struct{}) (*OidcResponse, error) {
+		return &OidcResponse{
+			Data: s.Discovery(),
+			Cors: true, // 必须允许跨域
+		}, nil
+	})
 }
 
-// JWKSHandler 封装 JWK Set Endpoint
-// GET /jwks.json
-// 必须允许 CORS
+// JWKSHandler [GET] /.well-known/jwks.json
+// OIDC Key Set
 func JWKSHandler(s *oidc.Server) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Content-Type", "application/json;charset=UTF-8")
-		w.Header().Set("Cache-Control", "public, max-age=3600")
-
-		jwks, err := s.KeyManager().ExportJWKS(r.Context())
+	return httpx.NewResponder(func(ctx context.Context, _ *struct{}) (*OidcResponse, error) {
+		jwks, err := s.KeyManager().ExportJWKS(ctx)
 		if err != nil {
-			Error(w, oidc.ServerError("failed to export JWKS"))
-			return
+			return nil, err
 		}
-		if err := sonic.ConfigDefault.NewEncoder(w).Encode(jwks); err != nil {
-			log.Error().Err(err).Msg("failed to encode response")
-			return
-		}
-	}
+		return &OidcResponse{
+			Data: jwks,
+			Cors: true, // 必须允许跨域
+		}, nil
+	}, httpx.WithErrorFunc(Error))
 }
 
-// UserInfoHandler 封装 OIDC UserInfo Endpoint
+// UserInfoHandler [GET/POST] /userinfo
+// OIDC UserInfo
 func UserInfoHandler(s *oidc.Server) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json;charset=UTF-8")
-
-		claims, err := GetClaims(r.Context())
+	return httpx.NewResponder(func(ctx context.Context, _ *struct{}) (*OidcResponse, error) {
+		// 1. 获取 Token Claims (依赖前置 Middleware 解析 Bearer Token)
+		claims, err := GetClaims(ctx)
 		if err != nil {
-			Error(w, oidc.AccessDeniedError("missing or invalid token"))
-			return
+			// 返回 standard error，由 httpx ErrorHook 转换为 JSON 格式
+			return nil, oidc.AccessDeniedError("missing or invalid token")
 		}
 
-		info, err := s.GetUserInfo(r.Context(), claims)
+		// 2. 获取用户信息
+		info, err := s.GetUserInfo(ctx, claims)
 		if err != nil {
-			Error(w, err)
-			return
+			return nil, err
 		}
 
-		w.WriteHeader(http.StatusOK)
-		if err := sonic.ConfigDefault.NewEncoder(w).Encode(info); err != nil {
-			log.Error().Err(err).Msg("failed to encode response")
-			return
-		}
-	}
+		return &OidcResponse{
+			Data: info,
+			// UserInfo 响应不应被公开缓存，但通常也不强制 No-Store，视具体需求而定
+			NoCache: true,
+		}, nil
+	}, httpx.WithErrorFunc(Error))
 }
 
-// RevocationHandler 封装 /revoke
+// RevocationHandler [POST] /revoke
+// RFC 7009: Token Revocation
 func RevocationHandler(s *oidc.Server) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		var req oidc.RevocationRequest
-		if err := httpx.Bind(r, &req); err != nil {
-			Error(w, oidc.InvalidRequestError(err.Error()))
-			return
+	return httpx.NewResponder(func(ctx context.Context, req *oidc.RevocationRequest) (*OidcResponse, error) {
+		if err := s.RevokeToken(ctx, req); err != nil {
+			return nil, err
 		}
-
-		// 补充 Basic Auth 支持
-		populateCredentials(r, &req.ClientID, &req.ClientSecret)
-
-		if err := s.RevokeToken(r.Context(), &req); err != nil {
-			Error(w, err)
-			return
-		}
-		w.WriteHeader(http.StatusOK)
-	}
+		// 成功返回 200 OK 且无 Body
+		return &OidcResponse{
+			Status: http.StatusOK,
+		}, nil
+	}, httpx.AddBinders(&httpx.ClientAuthBinder{}), httpx.WithErrorFunc(Error))
 }
 
-// IntrospectionHandler 封装 Token Introspection Endpoint (/introspect)
-// RFC 7662: OAuth 2.0 Token Introspection
+// IntrospectionHandler [POST] /introspect
+// RFC 7662: Token Introspection
 func IntrospectionHandler(s *oidc.Server) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Cache-Control", "no-store")
-		w.Header().Set("Pragma", "no-cache")
-		w.Header().Set("Content-Type", "application/json;charset=UTF-8")
-
-		if err := r.ParseForm(); err != nil {
-			Error(w, oidc.InvalidRequestError("failed to parse parameters"))
-			return
+	return httpx.NewResponder(func(ctx context.Context, req *oidc.IntrospectionRequest) (*OidcResponse, error) {
+		if req.Token == "" {
+			return nil, oidc.InvalidRequestError("missing token parameter")
 		}
 
-		token := r.Form.Get("token")
-		if token == "" {
-			Error(w, oidc.InvalidRequestError("missing token parameter"))
-			return
-		}
-
-		// 这里保持原有的手动处理逻辑，因为它直接操作了 Form
-		clientID, clientSecret, ok := r.BasicAuth()
-		if !ok {
-			clientID = r.Form.Get("client_id")
-			clientSecret = r.Form.Get("client_secret")
-		}
-
-		resp, err := s.Introspect(r.Context(), token, clientID, clientSecret)
+		resp, err := s.Introspect(ctx, req.Token, req.ClientID, req.ClientSecret)
 		if err != nil {
-			Error(w, err)
-			return
+			return nil, err
 		}
 
-		w.WriteHeader(http.StatusOK)
-		if err := sonic.ConfigDefault.NewEncoder(w).Encode(resp); err != nil {
-			log.Error().Err(err).Msg("failed to encode response")
-			return
-		}
-	}
+		return &OidcResponse{
+			Data:    resp,
+			NoCache: true, // RFC 7662 建议
+		}, nil
+	}, httpx.AddBinders(&httpx.ClientAuthBinder{}), httpx.WithErrorFunc(Error))
 }
 
-// PARHandler 封装 /par
+// PARHandler [POST] /par
+// RFC 9126: Pushed Authorization Requests
 func PARHandler(s *oidc.Server) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Cache-Control", "no-store")
-		w.Header().Set("Pragma", "no-cache")
-		w.Header().Set("Content-Type", "application/json;charset=UTF-8")
-
-		var req oidc.PARRequest
-		if err := httpx.Bind(r, &req); err != nil {
-			Error(w, oidc.InvalidRequestError(err.Error()))
-			return
-		}
-
-		// 补充 Basic Auth 支持 (PAR 必须验证 Client)
-		populateCredentials(r, &req.ClientID, &req.ClientSecret)
-
-		resp, err := s.PushedAuthorization(r.Context(), &req)
+	return httpx.NewResponder(func(ctx context.Context, req *oidc.PARRequest) (*OidcResponse, error) {
+		resp, err := s.PushedAuthorization(ctx, req)
 		if err != nil {
-			Error(w, err)
-			return
+			return nil, err
 		}
 
-		w.WriteHeader(http.StatusCreated)
-		if err := sonic.ConfigDefault.NewEncoder(w).Encode(resp); err != nil {
-			log.Error().Err(err).Msg("failed to encode response")
-			return
-		}
-	}
+		return &OidcResponse{
+			Status:  http.StatusCreated, // 201 Created
+			Data:    resp,
+			NoCache: true,
+		}, nil
+	}, httpx.AddBinders(&httpx.ClientAuthBinder{}), httpx.WithErrorFunc(Error))
 }
 
-// DeviceAuthorizationHandler 封装 /device/authorize
+// DeviceAuthorizationHandler [POST] /device/authorize
+// RFC 8628: Device Authorization Grant
 func DeviceAuthorizationHandler(s *oidc.Server) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Cache-Control", "no-store")
-		w.Header().Set("Content-Type", "application/json;charset=UTF-8")
-
-		var req oidc.DeviceAuthorizationRequest
-		if err := httpx.Bind(r, &req); err != nil {
-			Error(w, oidc.InvalidRequestError(err.Error()))
-			return
-		}
-
-		// 虽然 Device Flow 常用于 Public Client，但如果是 Confidential Client，也需要认证
-		// DeviceAuthorizationRequest 结构体本身不带 Secret 字段，
-		// 但如果后续扩展需要 Client 认证，这里预留支持是有意义的。
-		// 目前 oidc.DeviceAuthorizationRequest 定义里没有 Secret，所以这里仅作为 ClientID 的 fallback
-		if uid, _, ok := r.BasicAuth(); ok && req.ClientID == "" {
-			req.ClientID = uid
-		}
-
-		resp, err := s.DeviceAuthorization(r.Context(), &req)
+	return httpx.NewResponder(func(ctx context.Context, req *oidc.DeviceAuthorizationRequest) (*OidcResponse, error) {
+		resp, err := s.DeviceAuthorization(ctx, req)
 		if err != nil {
-			Error(w, err)
-			return
+			return nil, err
 		}
 
-		w.WriteHeader(http.StatusOK)
-		if err := sonic.ConfigDefault.NewEncoder(w).Encode(resp); err != nil {
-			log.Error().Err(err).Msg("failed to encode response")
-			return
-		}
-	}
-}
-
-// --- Helpers ---
-
-// Error 按照 RFC 6749 格式写入错误响应
-func Error(w http.ResponseWriter, err error) {
-	w.Header().Set("Content-Type", "application/json")
-
-	// 1. 尝试直接断言 *oidc.Error
-	var oidcErr *oidc.Error
-	if errors.As(err, &oidcErr) {
-		w.WriteHeader(oidcErr.StatusCode)
-		if err := sonic.ConfigDefault.NewEncoder(w).Encode(oidcErr); err != nil {
-			log.Error().Err(err).Msg("failed to encode response")
-			return
-		}
-		return
-	}
-
-	// 2. 尝试映射 Sentinel Errors
-	if mappedErr := mapSentinelToError(err); mappedErr != nil {
-		w.WriteHeader(mappedErr.StatusCode)
-		if err := sonic.ConfigDefault.NewEncoder(w).Encode(mappedErr); err != nil {
-			log.Error().Err(err).Msg("failed to encode response")
-			return
-		}
-		return
-	}
-
-	// 3. 默认 500
-	w.WriteHeader(http.StatusInternalServerError)
-	if err := sonic.ConfigDefault.NewEncoder(w).Encode(&oidc.Error{
-		Code:        "server_error",
-		Description: err.Error(),
-	}); err != nil {
-		log.Error().Err(err).Msg("failed to encode response")
-		return
-	}
-}
-
-// mapSentinelToError 将预定义的 error 变量转换为 *oidc.Error 结构
-func mapSentinelToError(err error) *oidc.Error {
-	switch {
-	case errors.Is(err, oidc.ErrInvalidRequest):
-		return oidc.InvalidRequestError(err.Error())
-	case errors.Is(err, oidc.ErrInvalidClient):
-		return oidc.InvalidClientError("client authentication failed")
-	case errors.Is(err, oidc.ErrInvalidGrant):
-		return oidc.InvalidGrantError("invalid grant")
-	case errors.Is(err, oidc.ErrUnauthorizedClient):
-		return oidc.UnauthorizedClientError("unauthorized client")
-	case errors.Is(err, oidc.ErrUnsupportedGrantType):
-		return oidc.UnsupportedGrantTypeError("unsupported grant type")
-	case errors.Is(err, oidc.ErrInvalidScope):
-		return oidc.InvalidScopeError("invalid scope")
-	case errors.Is(err, oidc.ErrAccessDenied):
-		return oidc.AccessDeniedError("access denied")
-	case errors.Is(err, oidc.ErrAuthorizationPending):
-		return oidc.AuthorizationPendingError("authorization pending")
-	case errors.Is(err, oidc.ErrSlowDown):
-		return oidc.SlowDownError("slow down")
-	case errors.Is(err, oidc.ErrExpiredToken):
-		return oidc.ExpiredTokenError("token expired")
-	}
-	return nil
+		return &OidcResponse{
+			Data:    resp,
+			NoCache: true,
+		}, nil
+	}, httpx.AddBinders(&httpx.ClientAuthBinder{}), httpx.WithErrorFunc(Error))
 }

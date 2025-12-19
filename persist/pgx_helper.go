@@ -34,6 +34,7 @@ func (s *PgxStorage) UserCreateInfo(ctx context.Context, userInfo *oidc.UserInfo
 		LastLoginAt: &t,
 	}
 
+	// 构造凭证列表
 	creds := []*Credential{
 		{
 			UserID:     id,
@@ -42,13 +43,17 @@ func (s *PgxStorage) UserCreateInfo(ctx context.Context, userInfo *oidc.UserInfo
 			Secret:     oidc.SecretBytes(hashedPassword),
 			Verified:   true,
 		},
-		{
+	}
+
+	// 仅当 Email 存在时才添加 Email 凭证
+	if userInfo.Email != nil {
+		creds = append(creds, &Credential{
 			UserID:     id,
 			Type:       IdentEmail,
 			Identifier: *userInfo.Email,
 			Secret:     nil,
 			Verified:   true,
-		},
+		})
 	}
 
 	profile := &Profile{

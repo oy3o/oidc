@@ -184,10 +184,6 @@ github.com/opencontainers/go-digest v1.0.0 h1:apOUWs51W5PlhuyGyz9FCeeBIOUDA/6nW8
 github.com/opencontainers/go-digest v1.0.0/go.mod h1:0JzlMkj0TRzQZfJkVvzbP0HBR3IKzErnv2BNG4W4MAM=
 github.com/opencontainers/image-spec v1.1.1 h1:y0fUlFfIZhPF1W537XOLg0/fcx6zcHCJwooC2xJA040=
 github.com/opencontainers/image-spec v1.1.1/go.mod h1:qpqAh3Dmcf36wStyyWU+kCeDgrGnAve2nCC8+7h8Q0M=
-github.com/oy3o/httpx v1.4.6 h1:4K9ix3RYSd0r10Xw77o+77175yj4r3upRl82Q6ZT9Lo=
-github.com/oy3o/httpx v1.4.6/go.mod h1:2zjqs4fSOqWZWLoEwJ1SaJaillB75MuiCpiJScueEHk=
-github.com/oy3o/o11y v1.4.3 h1:5ArP4N5LFm+JWGd1G/EyytSpTVD+ky22e/TRqNkwUYI=
-github.com/oy3o/o11y v1.4.3/go.mod h1:ltHxb9+g8Ai/P0ir+3GuGtJrh0vSQqN33vNSOpPqkXg=
 github.com/oy3o/singleflight v1.0.2 h1:hlvP6hJM06UtMw2g6UPiKDGC1MD1LbuDAlVlo7bbBHc=
 github.com/oy3o/singleflight v1.0.2/go.mod h1:WvmhlpFl7VFiY6R8+twsJLE5GN7u7xBjxcRhSJYSPvU=
 github.com/pkg/errors v0.9.1 h1:FEBLx1zS214owpjy7qsBeixbURkuhQAwrK5UwLGTwt4=

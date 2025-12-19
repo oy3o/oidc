@@ -6,6 +6,17 @@ import (
 	"time"
 )
 
+// IntrospectionRequest 定义 RFC 7662 请求体
+// 必须支持 Form 表单和 Basic Auth
+type IntrospectionRequest struct {
+	Token         string `form:"token" json:"token"`                     // 必填
+	TokenTypeHint string `form:"token_type_hint" json:"token_type_hint"` // 选填
+
+	// Client 认证信息 (自动通过 ClientAuthBinder 注入)
+	ClientID     string `form:"client_id" json:"client_id"`
+	ClientSecret string `form:"client_secret" json:"client_secret"`
+}
+
 // IntrospectionResponse RFC 7662 Introspection Response
 type IntrospectionResponse struct {
 	Active    bool   `json:"active"`

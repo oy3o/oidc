@@ -12,7 +12,7 @@ require (
 	github.com/jackc/pgx/v5 v5.7.6
 	github.com/lestrrat-go/jwx/v2 v2.1.6
 	github.com/nyaruka/phonenumbers v1.6.7
-	github.com/oy3o/httpx v1.4.6
+	github.com/oy3o/httpx v1.5.3
 	github.com/oy3o/o11y v1.4.3
 	github.com/oy3o/singleflight v1.0.2
 	github.com/puzpuzpuz/xsync/v4 v4.2.0
@@ -137,4 +137,10 @@ require (
 	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
+)
+
+// 指向本地开发版本的依赖库
+replace (
+	github.com/oy3o/httpx => ../httpx
+	github.com/oy3o/o11y => ../o11y
 )

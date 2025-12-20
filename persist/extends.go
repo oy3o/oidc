@@ -14,6 +14,7 @@ type UserManager interface {
 	UserGetByID(ctx context.Context, id oidc.BinaryUUID) (*User, error)
 	UserUpdateStatus(ctx context.Context, id oidc.BinaryUUID, status UserStatus) error
 	UserUpdatePassword(ctx context.Context, userID oidc.BinaryUUID, newHashedPassword oidc.SecretBytes) error
+	UserList(ctx context.Context, limit, offset int, query string) ([]*Profile, int64, error)
 }
 
 // CredentialManager 处理具体的认证凭据（如密码、WebAuthn 凭证等）

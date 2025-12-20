@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/Masterminds/squirrel"
 	"github.com/georgysavva/scany/v2/pgxscan"
 	"github.com/google/uuid"
 	"github.com/oy3o/oidc"
@@ -133,6 +134,45 @@ func (s *PgxStorage) UserUpdateStatus(ctx context.Context, id oidc.BinaryUUID, s
 		return ErrUserNotFound
 	}
 	return nil
+}
+
+func (s *PgxStorage) UserList(ctx context.Context, limit, offset int, query string) ([]*Profile, int64, error) {
+	// Base Builder
+	baseBuilder := psql.Select("user_id", "name", "email", "email_verified", "updated_at").From("profiles")
+	countBuilder := psql.Select("COUNT(*)").From("profiles")
+
+	if query != "" {
+		likePattern := "%" + query + "%"
+		filter := squirrel.Or{
+			squirrel.ILike{"name": likePattern},
+			squirrel.ILike{"email": likePattern},
+		}
+		baseBuilder = baseBuilder.Where(filter)
+		countBuilder = countBuilder.Where(filter)
+	}
+
+	// 1. Get Count
+	var total int64
+	countSql, countArgs, err := countBuilder.ToSql()
+	if err != nil {
+		return nil, 0, err
+	}
+	if err := s.DB(ctx).QueryRow(ctx, countSql, countArgs...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
+	// 2. Get Data
+	sql, args, err := baseBuilder.OrderBy("updated_at DESC").Limit(uint64(limit)).Offset(uint64(offset)).ToSql()
+	if err != nil {
+		return nil, 0, err
+	}
+
+	var profiles []*Profile
+	if err := pgxscan.Select(ctx, s.DB(ctx), &profiles, sql, args...); err != nil {
+		return nil, 0, err
+	}
+
+	return profiles, total, nil
 }
 
 // --- Profile Methods ---

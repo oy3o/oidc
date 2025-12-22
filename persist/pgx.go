@@ -48,7 +48,7 @@ type PgxUOW struct {
 // 确保实现接口
 var (
 	_ oidc.Persistence = (*PgxStorage)(nil)
-	_ Persistence      = (*PgxStorage)(nil)
+	_ UserExtend       = (*PgxStorage)(nil)
 )
 
 // NewPgx 创建一个新的 Storage 实例

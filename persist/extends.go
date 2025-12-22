@@ -36,9 +36,9 @@ type ProfileManager interface {
 // 聚合接口定义 (服务层依赖)
 // ---------------------------------------------------------
 
-// Persistence 包含完整的身份管理能力。
-type Persistence interface {
+// UserExtend 包含完整的用户管理能力。
+type UserExtend interface {
 	UserManager
-	CredentialManager
 	ProfileManager
+	CredentialManager
 }

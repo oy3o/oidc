@@ -13,10 +13,10 @@ import (
 type IdenType string
 
 const (
-	IdentPassword IdenType = "password" // 用于存密码Hash，Identifier是id
-	IdentEmail    IdenType = "email"    // 仅用于标识邮箱登录（无密码，Magic Link）
-	IdentPhone    IdenType = "phone"    // 手机验证码登录（无密码，Magic Link）
-	IdentWebAuthn IdenType = "webauthn" // Passkeys / FIDO2
+	IdentPassword IdenType = "password"     // 用于存密码Hash，Identifier是id
+	IdentEmail    IdenType = "email"        // 仅用于标识邮箱登录（无密码，Magic Link）
+	IdentPhone    IdenType = "phone_number" // 手机验证码登录（无密码，Magic Link）
+	IdentWebAuthn IdenType = "webauthn"     // Passkeys / FIDO2
 )
 
 type Credential struct {
@@ -42,10 +42,6 @@ type Credential struct {
 	// 建议 SecretBytes 实现 GormDataTypeInterface 返回 "bytea" 或 "blob"
 	// 或者直接使用 string 存储 hex/base64 编码后的数据
 	Secret oidc.SecretBytes `db:"secret"`
-
-	// 5. 状态与审计
-	// Verified: 对于 Email/Phone 类型很重要
-	Verified bool `db:"verified"`
 
 	CreatedAt time.Time `db:"created_at"`
 	UpdatedAt time.Time `db:"updated_at"`

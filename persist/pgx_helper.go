@@ -41,7 +41,6 @@ func (s *PgxStorage) UserCreateInfo(ctx context.Context, userInfo *oidc.UserInfo
 			Type:       IdentPassword,
 			Identifier: userInfo.Subject,
 			Secret:     oidc.SecretBytes(hashedPassword),
-			Verified:   true,
 		},
 	}
 
@@ -52,7 +51,6 @@ func (s *PgxStorage) UserCreateInfo(ctx context.Context, userInfo *oidc.UserInfo
 			Type:       IdentEmail,
 			Identifier: *userInfo.Email,
 			Secret:     nil,
-			Verified:   true,
 		})
 	}
 

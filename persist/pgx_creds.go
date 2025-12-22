@@ -27,8 +27,8 @@ func (s *PgxStorage) UserUpdatePassword(ctx context.Context, userID oidc.BinaryU
 
 func (s *PgxStorage) CredentialCreate(ctx context.Context, cred *Credential) error {
 	query, args, err := psql.Insert("credentials").
-		Columns("user_id", "type", "identifier", "secret", "verified").
-		Values(cred.UserID, cred.Type, cred.Identifier, cred.Secret, cred.Verified).
+		Columns("user_id", "type", "identifier", "secret").
+		Values(cred.UserID, cred.Type, cred.Identifier, cred.Secret).
 		Suffix("RETURNING id, created_at, updated_at"). // 回填 ID
 		ToSql()
 	if err != nil {
@@ -83,7 +83,6 @@ func (s *PgxStorage) CredentialGetByIdentifier(ctx context.Context, idenType Ide
 func (s *PgxStorage) CredentialUpdate(ctx context.Context, cred *Credential) error {
 	query, args, err := psql.Update("credentials").
 		Set("secret", cred.Secret).
-		Set("verified", cred.Verified).
 		Set("updated_at", time.Now()).
 		Where(map[string]interface{}{"id": cred.ID}).
 		ToSql()

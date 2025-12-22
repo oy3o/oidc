@@ -220,7 +220,6 @@ func TestCredentialLifecycle(t *testing.T) {
 		Type:       IdentPassword,
 		Identifier: "testuser",
 		Secret:     []byte("hashed_secret"),
-		Verified:   true,
 	}
 	err = storage.CredentialCreate(ctx, cred)
 	require.NoError(t, err)

@@ -66,8 +66,8 @@ func (s *PgxStorage) UserCreate(ctx context.Context, user *User, credentials []*
 		for _, cred := range credentials {
 			cred.UserID = user.ID // 关联 ID
 			credQuery, credArgs, err := psql.Insert("credentials").
-				Columns("user_id", "type", "identifier", "secret", "verified").
-				Values(cred.UserID, cred.Type, cred.Identifier, cred.Secret, cred.Verified).
+				Columns("user_id", "type", "identifier", "secret").
+				Values(cred.UserID, cred.Type, cred.Identifier, cred.Secret).
 				ToSql()
 			if err != nil {
 				return err
@@ -196,24 +196,20 @@ func (s *PgxStorage) ProfileGetByUserID(ctx context.Context, userID oidc.BinaryU
 func (s *PgxStorage) ProfileUpdate(ctx context.Context, profile *Profile) error {
 	// 构建 update map
 	updateMap := map[string]interface{}{
-		"name":                  profile.Name,
-		"given_name":            profile.GivenName,
-		"family_name":           profile.FamilyName,
-		"nickname":              profile.Nickname,
-		"preferred_username":    profile.PreferredUsername,
-		"profile":               profile.Profile,
-		"picture":               profile.Picture,
-		"website":               profile.Website,
-		"email":                 profile.Email,
-		"email_verified":        profile.EmailVerified,
-		"gender":                profile.Gender,
-		"birthdate":             profile.Birthdate,
-		"zoneinfo":              profile.Zoneinfo,
-		"locale":                profile.Locale,
-		"phone_number":          profile.PhoneNumber,
-		"phone_number_verified": profile.PhoneNumberVerified,
-		"metadata":              profile.Metadata,
-		"updated_at":            time.Now(),
+		"name":               profile.Name,
+		"given_name":         profile.GivenName,
+		"family_name":        profile.FamilyName,
+		"nickname":           profile.Nickname,
+		"preferred_username": profile.PreferredUsername,
+		"profile":            profile.Profile,
+		"picture":            profile.Picture,
+		"website":            profile.Website,
+		"gender":             profile.Gender,
+		"birthdate":          profile.Birthdate,
+		"zoneinfo":           profile.Zoneinfo,
+		"locale":             profile.Locale,
+		"metadata":           profile.Metadata,
+		"updated_at":         time.Now(),
 	}
 
 	query, args, err := psql.Update("profiles").
@@ -229,6 +225,37 @@ func (s *PgxStorage) ProfileUpdate(ctx context.Context, profile *Profile) error 
 		if isUniqueViolation(err) {
 			return ErrIdentifierExists
 		}
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrUserNotFound
+	}
+	return nil
+}
+
+func (s *PgxStorage) ProfileMarkVerified(ctx context.Context, userID oidc.BinaryUUID, identifier string) error {
+	var idenType IdenType
+	var check func(string) bool
+	for idenType, check = range IdentifierChecker {
+		if check(identifier) {
+			break
+		}
+	}
+	if idenType != IdentEmail && idenType != IdentPhone {
+		return oidc.ErrInvalidIdentifier
+	}
+
+	query, args, err := psql.Update("profiles").
+		Set(string(idenType), identifier).
+		Set(string(idenType)+"_verified", true).
+		Set("updated_at", time.Now()).
+		Where(map[string]interface{}{"user_id": userID}).
+		ToSql()
+	if err != nil {
+		return err
+	}
+	tag, err := s.DB(ctx).Exec(ctx, query, args...)
+	if err != nil {
 		return err
 	}
 	if tag.RowsAffected() == 0 {

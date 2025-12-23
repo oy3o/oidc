@@ -13,6 +13,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	"github.com/oy3o/oidc"
 )
 
 // ClientConfig 客户端配置
@@ -28,13 +29,13 @@ type ClientConfig struct {
 type Client struct {
 	cfg        ClientConfig
 	httpClient *http.Client
-	discovery  *Discovery
+	discovery  *oidc.Discovery
 
 	// DPoP 签名密钥 (可选)
-	dpopKey Key
+	dpopKey oidc.Key
 
 	// ID Token 验证器
-	verifier *ClientVerifier
+	verifier *oidc.ClientVerifier
 }
 
 // NewClient 创建一个新的 OIDC 客户端
@@ -45,16 +46,16 @@ func NewClient(ctx context.Context, cfg ClientConfig, httpClient *http.Client) (
 	}
 
 	// 1. 自动发现配置
-	discovery, err := Discover(ctx, cfg.Issuer, httpClient)
+	discovery, err := oidc.Discover(ctx, cfg.Issuer, httpClient)
 	if err != nil {
 		return nil, fmt.Errorf("failed to discover issuer: %w", err)
 	}
 
 	// 2. 初始化远程 JWKS 加载器 (用于验证 ID Token)
-	jwks := NewRemoteKeySet(ctx, discovery.JWKSURI, httpClient)
+	jwks := oidc.NewRemoteKeySet(ctx, discovery.JWKSURI, httpClient)
 
 	// 3. 初始化验证器
-	verifier := NewClientVerifier(cfg.Issuer, cfg.ClientID, jwks)
+	verifier := oidc.NewClientVerifier(cfg.Issuer, cfg.ClientID, jwks)
 
 	return &Client{
 		cfg:        cfg,
@@ -82,18 +83,18 @@ func WithPKCE(codeChallenge, codeChallengeMethod string) AuthCodeOption {
 
 // WithDPoP 启用 DPoP 支持
 // 传入客户端的私钥 (建议使用 ECDSA P-256)，后续请求将自动附带 DPoP Proof
-func (c *Client) WithDPoP(key Key) *Client {
+func (c *Client) WithDPoP(key oidc.Key) *Client {
 	c.dpopKey = key
 	return c
 }
 
 // GeneratePKCE 生成 PKCE 的 Verifier 和 Challenge
 func (c *Client) GeneratePKCE() (verifier, challenge string, err error) {
-	verifier, err = GeneratePKCEVerifier()
+	verifier, err = oidc.GeneratePKCEVerifier()
 	if err != nil {
 		return "", "", err
 	}
-	challenge, err = ComputePKCEChallenge(CodeChallengeMethodS256, verifier)
+	challenge, err = oidc.ComputePKCEChallenge(oidc.CodeChallengeMethodS256, verifier)
 	return verifier, challenge, err
 }
 
@@ -110,7 +111,7 @@ func (c *Client) AuthCodeURL(state string, opts ...AuthCodeOption) string {
 func (c *Client) PushAuthorize(ctx context.Context, state string, opts ...AuthCodeOption) (authURL string, requestURI string, err error) {
 	endpoint := c.discovery.PushedAuthorizationRequestEndpoint
 	if endpoint == "" {
-		return "", "", ErrPARNotSupported
+		return "", "", oidc.ErrPARNotSupported
 	}
 
 	// 1. 准备参数
@@ -147,7 +148,7 @@ func (c *Client) PushAuthorize(ctx context.Context, state string, opts ...AuthCo
 		RequestURI string `json:"request_uri"`
 		ExpiresIn  int    `json:"expires_in"`
 	}
-	if err := DecodeJSON(resp.Body, &parResp); err != nil {
+	if err := oidc.DecodeJSON(resp.Body, &parResp); err != nil {
 		return "", "", err
 	}
 
@@ -167,14 +168,14 @@ func (c *Client) PushAuthorize(ctx context.Context, state string, opts ...AuthCo
 
 // Token 响应结构，包含 ID Token 解析后的 Claims
 type Token struct {
-	AccessToken   string         `json:"access_token"`
-	TokenType     string         `json:"token_type"`
-	RefreshToken  string         `json:"refresh_token,omitempty"`
-	ExpiresIn     int            `json:"expires_in"`
-	IDToken       string         `json:"id_token,omitempty"`
-	Scope         string         `json:"scope,omitempty"`
-	Expiry        time.Time      `json:"-"`
-	IDTokenClaims *IDTokenClaims `json:"-"` // 解析并验证后的 ID Token
+	AccessToken   string              `json:"access_token"`
+	TokenType     string              `json:"token_type"`
+	RefreshToken  string              `json:"refresh_token,omitempty"`
+	ExpiresIn     int                 `json:"expires_in"`
+	IDToken       string              `json:"id_token,omitempty"`
+	Scope         string              `json:"scope,omitempty"`
+	Expiry        time.Time           `json:"-"`
+	IDTokenClaims *oidc.IDTokenClaims `json:"-"` // 解析并验证后的 ID Token
 }
 
 // ExchangeAuthorizationCode 使用授权码换取 Token
@@ -219,10 +220,10 @@ func (c *Client) ExchangeClientCredentials(ctx context.Context, scope ...string)
 // ---------------------------------------------------------------------------
 
 // RequestDeviceAuthorization 发起设备授权请求
-func (c *Client) RequestDeviceAuthorization(ctx context.Context) (*DeviceAuthorizationResponse, error) {
+func (c *Client) RequestDeviceAuthorization(ctx context.Context) (*oidc.DeviceAuthorizationResponse, error) {
 	endpoint := c.discovery.DeviceAuthorizationEndpoint
 	if endpoint == "" {
-		return nil, ErrDeviceFlowNotSupported
+		return nil, oidc.ErrDeviceFlowNotSupported
 	}
 
 	v := url.Values{}
@@ -251,8 +252,8 @@ func (c *Client) RequestDeviceAuthorization(ctx context.Context) (*DeviceAuthori
 		return nil, c.parseError(resp.Body)
 	}
 
-	var devResp DeviceAuthorizationResponse
-	if err := DecodeJSON(resp.Body, &devResp); err != nil {
+	var devResp oidc.DeviceAuthorizationResponse
+	if err := oidc.DecodeJSON(resp.Body, &devResp); err != nil {
 		return nil, err
 	}
 	return &devResp, nil
@@ -284,7 +285,7 @@ func (c *Client) PollDeviceToken(ctx context.Context, deviceCode string, interva
 			}
 
 			// 检查特定错误
-			oidcErr, ok := err.(*Error)
+			oidcErr, ok := err.(*oidc.Error)
 			if !ok {
 				// 非协议错误，直接返回
 				return nil, err
@@ -312,7 +313,7 @@ func (c *Client) PollDeviceToken(ctx context.Context, deviceCode string, interva
 // ---------------------------------------------------------------------------
 
 // UserInfo 获取用户信息
-func (c *Client) UserInfo(ctx context.Context, accessToken string) (*UserInfo, error) {
+func (c *Client) UserInfo(ctx context.Context, accessToken string) (*oidc.UserInfo, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.discovery.UserInfoEndpoint, nil)
 	if err != nil {
 		return nil, err
@@ -338,8 +339,8 @@ func (c *Client) UserInfo(ctx context.Context, accessToken string) (*UserInfo, e
 		return nil, c.parseError(resp.Body)
 	}
 
-	var userInfo UserInfo
-	if err := DecodeJSON(resp.Body, &userInfo); err != nil {
+	var userInfo oidc.UserInfo
+	if err := oidc.DecodeJSON(resp.Body, &userInfo); err != nil {
 		return nil, fmt.Errorf("failed to decode userinfo: %w", err)
 	}
 
@@ -350,7 +351,7 @@ func (c *Client) UserInfo(ctx context.Context, accessToken string) (*UserInfo, e
 func (c *Client) AccessTokenRevoke(ctx context.Context, token string, hint string) error {
 	endpoint := c.discovery.RevocationEndpoint
 	if endpoint == "" {
-		return ErrRevocationNotSupported
+		return oidc.ErrRevocationNotSupported
 	}
 
 	v := url.Values{}
@@ -379,10 +380,10 @@ func (c *Client) AccessTokenRevoke(ctx context.Context, token string, hint strin
 }
 
 // Introspect 检查 Token 状态
-func (c *Client) Introspect(ctx context.Context, token string) (*IntrospectionResponse, error) {
+func (c *Client) Introspect(ctx context.Context, token string) (*oidc.IntrospectionResponse, error) {
 	endpoint := c.discovery.IntrospectionEndpoint
 	if endpoint == "" {
-		return nil, ErrIntrospectionNotSupported
+		return nil, oidc.ErrIntrospectionNotSupported
 	}
 
 	v := url.Values{}
@@ -405,8 +406,8 @@ func (c *Client) Introspect(ctx context.Context, token string) (*IntrospectionRe
 		return nil, c.parseError(resp.Body)
 	}
 
-	var intro IntrospectionResponse
-	if err := DecodeJSON(resp.Body, &intro); err != nil {
+	var intro oidc.IntrospectionResponse
+	if err := oidc.DecodeJSON(resp.Body, &intro); err != nil {
 		return nil, err
 	}
 	return &intro, nil
@@ -468,7 +469,7 @@ func (c *Client) doTokenRequest(ctx context.Context, v url.Values) (*Token, erro
 	}
 
 	var token Token
-	if err := DecodeJSON(resp.Body, &token); err != nil {
+	if err := oidc.DecodeJSON(resp.Body, &token); err != nil {
 		return nil, fmt.Errorf("failed to decode token response: %w", err)
 	}
 
@@ -485,7 +486,7 @@ func (c *Client) doTokenRequest(ctx context.Context, v url.Values) (*Token, erro
 		// 校验 nonce
 		nonce := v.Get("nonce")
 		if nonce != "" && claims.Nonce != nonce {
-			return nil, ErrNonceMismatch
+			return nil, oidc.ErrNonceMismatch
 		}
 		token.IDTokenClaims = claims
 	}
@@ -509,9 +510,9 @@ func (c *Client) authenticateClient(req *http.Request, v url.Values) {
 }
 
 func (c *Client) parseError(r io.Reader) error {
-	var errResp Error
-	if err := DecodeJSON(r, &errResp); err != nil {
-		return ErrUnparseableError
+	var errResp oidc.Error
+	if err := oidc.DecodeJSON(r, &errResp); err != nil {
+		return oidc.ErrUnparseableError
 	}
 	return &errResp
 }
@@ -529,7 +530,7 @@ func (c *Client) applyDPoP(req *http.Request) error {
 	// 注意：DPoP 要求 JWK 不包含 kid, alg 等，只包含 key 参数
 	// PublicKeyToJWK 生成了完整的结构，我们需要转成 map 并剔除多余字段
 	// 这里直接复用生成逻辑，但在 Header 中只放必要的
-	jwkObj, err := PublicKeyToJWK(pubKey, "", "")
+	jwkObj, err := oidc.PublicKeyToJWK(pubKey, "", "")
 	if err != nil {
 		return err
 	}
@@ -548,7 +549,7 @@ func (c *Client) applyDPoP(req *http.Request) error {
 	jti := uuid.New().String()
 
 	// RFC 9449: htu 不包含 query 和 fragment
-	htu := BuildRequestURI(req)
+	htu := oidc.BuildRequestURI(req)
 
 	claims := jwt.MapClaims{
 		"htm": req.Method,

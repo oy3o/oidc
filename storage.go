@@ -70,16 +70,16 @@ func (s *TieredStorage) ClientCreate(ctx context.Context, metadata *ClientMetada
 	return client, nil
 }
 
-func (s *TieredStorage) ClientUpdate(ctx context.Context, clientID BinaryUUID, metadata *ClientMetadata) (RegisteredClient, error) {
+func (s *TieredStorage) ClientUpdate(ctx context.Context, metadata *ClientMetadata) (RegisteredClient, error) {
 	// 1. Write DB
-	client, err := s.Persistence.ClientUpdate(ctx, clientID, metadata)
+	client, err := s.Persistence.ClientUpdate(ctx, metadata)
 	if err != nil {
 		return nil, err
 	}
 
 	// 2. Invalidate Cache (Cache-Aside)
 	// If cache invalidation fails, log but don't fail the request (eventual consistency)
-	if err := s.Cache.ClientInvalidate(ctx, clientID); err != nil {
+	if err := s.Cache.ClientInvalidate(ctx, metadata.ID); err != nil {
 		log.Error().Err(err).Msg("Failed to invalidate client cache")
 	}
 	return client, nil
@@ -98,9 +98,9 @@ func (s *TieredStorage) ClientDeleteByID(ctx context.Context, clientID BinaryUUI
 	return nil
 }
 
-func (s *TieredStorage) ClientListByOwner(ctx context.Context, ownerID BinaryUUID) ([]RegisteredClient, error) {
+func (s *TieredStorage) ClientListByOwner(ctx context.Context, ownerID BinaryUUID, query ListQuery) ([]RegisteredClient, error) {
 	// No caching for lists usually, unless complex. Direct to DB.
-	return s.Persistence.ClientListByOwner(ctx, ownerID)
+	return s.Persistence.ClientListByOwner(ctx, ownerID, query)
 }
 
 func (s *TieredStorage) ClientListAll(ctx context.Context, query ListQuery) ([]RegisteredClient, error) {

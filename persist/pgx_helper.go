@@ -115,12 +115,12 @@ func (s *PgxStorage) AuthenticateByPassword(ctx context.Context, identifier, pas
 // 业务逻辑
 
 type IdentifierVerifier interface {
-	// SendVerificationCode 生成、存储并发送一个验证码。
+	// IssueOTP 生成、存储并发送一个验证码。
 	// target 可以是邮箱地址或手机号码。
-	SendVerificationCode(ctx context.Context, identType IdenType, purpose, target string) error
+	IssueOTP(ctx context.Context, identType IdenType, purpose, target string) error
 
-	// VerifyCode 验证用户提供的验证码是否正确。
-	VerifyCode(ctx context.Context, purpose, target, code string) error
+	// VerifyOTP 验证用户提供的验证码是否正确。
+	VerifyOTP(ctx context.Context, purpose, target, code string) error
 }
 
 type AuthRequest struct {
@@ -137,42 +137,46 @@ type AuthResult struct {
 type AuthStorage interface {
 	AuthenticateByPassword(ctx context.Context, identifier string, password string) (oidc.BinaryUUID, string, error)
 	UserGetByID(ctx context.Context, id oidc.BinaryUUID) (*User, error)
+	CredentialGetByIdentifier(ctx context.Context, idenType IdenType, identifier string) (*Credential, error)
+}
+
+func CheckUserActived(ctx context.Context, s AuthStorage, idenifierVerifier IdentifierVerifier, uid oidc.BinaryUUID, identType, identifier string) (*User, error) {
+	// 获取用户
+	user, err := s.UserGetByID(ctx, uid)
+	if err != nil {
+		return nil, err
+	}
+
+	// 检查用户是否激活
+	if user.IsPending() {
+		go func() {
+			// 使用独立的 context 处理异步发送，避免 caller context 取消导致发送中断
+			idenifierVerifier.IssueOTP(context.Background(), IdenType(identType), "login", identifier)
+		}()
+		return nil, oidc.ErrUserNotConfirmed
+	}
+
+	// 用户未激活禁止登录
+	if !user.IsActive() {
+		return nil, oidc.ErrUserForbidden
+	}
+	return user, nil
 }
 
 // AuthenticateByPassword 通过标识符和密码进行认证
 func AuthenticateByPassword(ctx context.Context, s AuthStorage, issuer *oidc.Issuer, idenifierVerifier IdentifierVerifier, req *AuthRequest) (*AuthResult, error) {
-	// 1. 认证
+	// 认证
 	userID, identType, err := s.AuthenticateByPassword(ctx, req.Identifier, req.Password)
 	if err != nil {
 		return nil, err
 	}
 
-	// 2. 获取用户
-	user, err := s.UserGetByID(ctx, userID)
-	if err != nil {
-		return nil, err
-	}
-
-	// 3. 检查用户是否激活
-	if user.IsPending() {
-		go func() {
-			// 使用独立的 context 处理异步发送，避免 caller context 取消导致发送中断
-			idenifierVerifier.SendVerificationCode(context.Background(), IdenType(identType), "login", req.Identifier)
-		}()
-		return nil, oidc.ErrUserNotConfirmed
-	}
-
-	// 4. 用户未激活禁止登录
-	if !user.IsActive() {
-		return nil, oidc.ErrUserForbidden
-	}
-
-	// 5. 检查是否使用了默认密码
+	// 检查是否使用了默认密码
 	changeToken := ""
 	if req.Password == DefaultPassword {
 		result, err := issuer.IssuePasswordResetAccessToken(ctx, &oidc.IssuerRequest{
 			ClientID: oidc.BinaryUUID([]byte(issuer.Issuer())),
-			UserID:   user.ID,
+			UserID:   userID,
 			Audience: []string{issuer.Issuer()},
 		})
 		if err != nil {
@@ -181,9 +185,43 @@ func AuthenticateByPassword(ctx context.Context, s AuthStorage, issuer *oidc.Iss
 		changeToken = result.AccessToken
 	}
 
-	// 6. 返回结果
+	user, err := CheckUserActived(ctx, s, idenifierVerifier, userID, string(identType), req.Identifier)
+	if err != nil {
+		return nil, err
+	}
+
+	// 返回结果
 	return &AuthResult{
 		User:                user,
 		PasswordChangeToken: changeToken,
+	}, nil
+}
+
+func AuthenticateByOTP(ctx context.Context, s AuthStorage, issuer *oidc.Issuer, idenifierVerifier IdentifierVerifier, req *AuthRequest) (*AuthResult, error) {
+	if err := idenifierVerifier.VerifyOTP(ctx, "login", req.Identifier, req.Password); err != nil {
+		return nil, err
+	}
+	var idenType IdenType
+	var check func(string) bool
+	for idenType, check = range IdentifierChecker {
+		if check(req.Identifier) {
+			break
+		}
+	}
+	if idenType == "" {
+		return nil, oidc.ErrInvalidIdentifier
+	}
+	cred, err := s.CredentialGetByIdentifier(ctx, idenType, req.Identifier)
+	if err != nil {
+		return nil, ErrUserNotFound
+	}
+
+	user, err := CheckUserActived(ctx, s, idenifierVerifier, cred.UserID, string(idenType), req.Identifier)
+	if err != nil {
+		return nil, err
+	}
+
+	return &AuthResult{
+		User: user,
 	}, nil
 }

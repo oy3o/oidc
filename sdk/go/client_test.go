@@ -15,6 +15,7 @@ import (
 
 	"github.com/bytedance/sonic"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/oy3o/oidc"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -47,7 +48,7 @@ func setupMockOIDCServer(t *testing.T) *mockServerContext {
 
 	// /.well-known/openid-configuration
 	mux.HandleFunc("/.well-known/openid-configuration", func(w http.ResponseWriter, r *http.Request) {
-		config := Discovery{
+		config := oidc.Discovery{
 			Issuer:                             ctx.issuer, // 动态注入
 			AuthorizationEndpoint:              ctx.issuer + "/authorize",
 			TokenEndpoint:                      ctx.issuer + "/token",
@@ -63,8 +64,8 @@ func setupMockOIDCServer(t *testing.T) *mockServerContext {
 
 	// /jwks.json
 	mux.HandleFunc("/jwks.json", func(w http.ResponseWriter, r *http.Request) {
-		jwk, _ := PublicKeyToJWK(privKey.Public(), "test-kid", "RS256")
-		jwks := JSONWebKeySet{Keys: []JSONWebKey{jwk}}
+		jwk, _ := oidc.PublicKeyToJWK(privKey.Public(), "test-kid", "RS256")
+		jwks := oidc.JSONWebKeySet{Keys: []oidc.JSONWebKey{jwk}}
 		sonic.ConfigDefault.NewEncoder(w).Encode(jwks)
 	})
 
@@ -112,7 +113,7 @@ func setupMockOIDCServer(t *testing.T) *mockServerContext {
 	// /device/authorize
 	mux.HandleFunc("/device/authorize", func(w http.ResponseWriter, r *http.Request) {
 		ctx.captureRequest(r)
-		sonic.ConfigDefault.NewEncoder(w).Encode(DeviceAuthorizationResponse{
+		sonic.ConfigDefault.NewEncoder(w).Encode(oidc.DeviceAuthorizationResponse{
 			DeviceCode:      "mock-device-code",
 			UserCode:        "ABCD-1234",
 			VerificationURI: ctx.issuer + "/device",
@@ -132,7 +133,7 @@ func setupMockOIDCServer(t *testing.T) *mockServerContext {
 		}
 
 		name := "Test User"
-		sonic.ConfigDefault.NewEncoder(w).Encode(UserInfo{
+		sonic.ConfigDefault.NewEncoder(w).Encode(oidc.UserInfo{
 			Subject: "user-123",
 			Name:    &name,
 		})
@@ -147,7 +148,7 @@ func setupMockOIDCServer(t *testing.T) *mockServerContext {
 	// /introspect
 	mux.HandleFunc("/introspect", func(w http.ResponseWriter, r *http.Request) {
 		ctx.captureRequest(r)
-		sonic.ConfigDefault.NewEncoder(w).Encode(IntrospectionResponse{
+		sonic.ConfigDefault.NewEncoder(w).Encode(oidc.IntrospectionResponse{
 			Active: true,
 			Sub:    "user-123",
 		})
@@ -170,7 +171,7 @@ func (c *mockServerContext) captureRequest(r *http.Request) {
 
 func generateIDToken(t *testing.T, issuer, clientID string, key *rsa.PrivateKey) string {
 	now := time.Now()
-	claims := IDTokenClaims{
+	claims := oidc.IDTokenClaims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer:    issuer,
 			Subject:   "user-123",

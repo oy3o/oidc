@@ -120,7 +120,7 @@ func (c *ClientMetadata) Deserialize(data string) error {
 		Alias: (*Alias)(c),
 	}
 
-	if err := sonic.ConfigDefault.Unmarshal([]byte(data), &aux); err != nil {
+	if err := sonic.Unmarshal([]byte(data), &aux); err != nil {
 		return err
 	}
 
@@ -153,13 +153,13 @@ type ClientStorage interface {
 	ClientCreate(ctx context.Context, metadata *ClientMetadata) (RegisteredClient, error)
 
 	// ClientUpdate 更新客户端元数据
-	ClientUpdate(ctx context.Context, clientID BinaryUUID, metadata *ClientMetadata) (RegisteredClient, error)
+	ClientUpdate(ctx context.Context, metadata *ClientMetadata) (RegisteredClient, error)
 
 	// ClientDeleteByID 删除客户端
 	ClientDeleteByID(ctx context.Context, clientID BinaryUUID) error
 
 	// ClientListByOwner 根据所有者查询客户端 (可选)
-	ClientListByOwner(ctx context.Context, ownerID BinaryUUID) ([]RegisteredClient, error)
+	ClientListByOwner(ctx context.Context, ownerID BinaryUUID, query ListQuery) ([]RegisteredClient, error)
 
 	// ClientListAll 列出所有客户端
 	ClientListAll(ctx context.Context, query ListQuery) ([]RegisteredClient, error)

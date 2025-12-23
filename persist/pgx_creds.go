@@ -5,25 +5,7 @@ import (
 	"time"
 
 	"github.com/georgysavva/scany/v2/pgxscan"
-	"github.com/oy3o/oidc"
 )
-
-// UserUpdatePassword 原子性更新用户的所有密码凭证
-func (s *PgxStorage) UserUpdatePassword(ctx context.Context, userID oidc.BinaryUUID, newHashedPassword oidc.SecretBytes) error {
-	query, args, err := psql.Update("credentials").
-		Set("secret", newHashedPassword).
-		Set("updated_at", time.Now()).
-		Where(map[string]interface{}{
-			"user_id": userID,
-			"type":    IdentPassword,
-		}).ToSql()
-	if err != nil {
-		return err
-	}
-
-	_, err = s.DB(ctx).Exec(ctx, query, args...)
-	return err
-}
 
 func (s *PgxStorage) CredentialCreate(ctx context.Context, cred *Credential) error {
 	query, args, err := psql.Insert("credentials").

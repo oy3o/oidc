@@ -50,7 +50,7 @@ func (s *PgxStorage) ClientCreate(ctx context.Context, metadata *oidc.ClientMeta
 	return metadata, nil
 }
 
-func (s *PgxStorage) ClientUpdate(ctx context.Context, clientID oidc.BinaryUUID, metadata *oidc.ClientMetadata) (oidc.RegisteredClient, error) {
+func (s *PgxStorage) ClientUpdate(ctx context.Context, metadata *oidc.ClientMetadata) (oidc.RegisteredClient, error) {
 	// 构建 Update Builder
 	builder := psql.Update(clientTable).
 		Set("name", metadata.Name).
@@ -61,7 +61,7 @@ func (s *PgxStorage) ClientUpdate(ctx context.Context, clientID oidc.BinaryUUID,
 		Set("token_endpoint_auth_method", metadata.TokenEndpointAuthMethod).
 		Set("is_confidential_client", metadata.IsConfidentialClient).
 		Set("updated_at", time.Now()).
-		Where(map[string]interface{}{"id": clientID})
+		Where(map[string]interface{}{"id": metadata.ID})
 
 	if metadata.Secret != "" {
 		builder = builder.Set("secret", metadata.Secret)
@@ -81,7 +81,7 @@ func (s *PgxStorage) ClientUpdate(ctx context.Context, clientID oidc.BinaryUUID,
 	}
 
 	// 重新获取以返回完整对象（或者直接合并）
-	return s.ClientGetByID(ctx, clientID)
+	return s.ClientGetByID(ctx, metadata.ID)
 }
 
 func (s *PgxStorage) ClientDeleteByID(ctx context.Context, clientID oidc.BinaryUUID) error {
@@ -93,14 +93,21 @@ func (s *PgxStorage) ClientDeleteByID(ctx context.Context, clientID oidc.BinaryU
 	return err
 }
 
-func (s *PgxStorage) ClientListByOwner(ctx context.Context, ownerID oidc.BinaryUUID) ([]oidc.RegisteredClient, error) {
+func (s *PgxStorage) ClientListByOwner(ctx context.Context, ownerID oidc.BinaryUUID, query oidc.ListQuery) ([]oidc.RegisteredClient, error) {
 	var models []oidc.ClientMetadata
-	query, args, err := psql.Select("*").From(clientTable).Where(map[string]interface{}{"owner_id": ownerID}).ToSql()
+	builder := psql.Select("*").From(clientTable).Where(map[string]interface{}{"owner_id": ownerID}).OrderBy("id ASC")
+	if query.Limit > 0 {
+		builder = builder.Limit(uint64(query.Limit))
+	}
+	if query.Offset > 0 {
+		builder = builder.Offset(uint64(query.Offset))
+	}
+	sql, args, err := builder.ToSql()
 	if err != nil {
 		return nil, err
 	}
 
-	if err := pgxscan.Select(ctx, s.DB(ctx), &models, query, args...); err != nil {
+	if err := pgxscan.Select(ctx, s.DB(ctx), &models, sql, args...); err != nil {
 		return nil, err
 	}
 

@@ -89,9 +89,6 @@ CREATE TABLE IF NOT EXISTS credentials (
     -- 密钥 (Hash 或 Token) 可为空作为 Magic Link
     secret VARCHAR(255),
     
-    -- 状态
-    verified BOOLEAN NOT NULL DEFAULT FALSE,
-    
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     

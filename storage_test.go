@@ -163,7 +163,7 @@ func TestTieredStorage_ClientUpdate(t *testing.T) {
 
 	// Update
 	newMeta := &oidc.ClientMetadata{ID: clientID, Scope: "scope2"}
-	_, err = storage.ClientUpdate(ctx, clientID, newMeta)
+	_, err = storage.ClientUpdate(ctx, newMeta)
 	assert.NoError(t, err)
 
 	// Verify DB

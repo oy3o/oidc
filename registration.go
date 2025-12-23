@@ -87,7 +87,7 @@ func RegisterClient(ctx context.Context, storage ClientStorage, hasher Hasher, r
 		grantTypes = []string{"authorization_code"}
 	}
 
-	isConfidential := isConfidentialClient(req.TokenEndpointAuthMethod)
+	isConfidential := IsConfidentialClient(req.TokenEndpointAuthMethod)
 	metadata := &ClientMetadata{
 		ID:                      clientID,
 		OwnerID:                 ownerID, // 需在 ClientMetadata 结构体中添加此字段
@@ -162,12 +162,11 @@ func UnregisterClient(ctx context.Context, storage ClientStorage, clientIDStr st
 // ClientUpdate 更新客户端信息
 // RFC 7592: Update Request
 func ClientUpdate(ctx context.Context, storage ClientStorage, req *ClientUpdateRequest) (*ClientRegistrationResponse, error) {
+	// 1. 获取现有客户端 (确保存在)
 	clientID, err := ParseUUID(req.ClientID)
 	if err != nil {
 		return nil, fmt.Errorf("%w: invalid client id", ErrInvalidRequest)
 	}
-
-	// 1. 获取现有客户端 (确保存在)
 	oldClient, err := storage.ClientGetByID(ctx, clientID)
 	if err != nil {
 		return nil, err
@@ -196,9 +195,9 @@ func ClientUpdate(ctx context.Context, storage ClientStorage, req *ClientUpdateR
 		metadata.LogoURI = req.LogoURI
 	}
 	metadata.TokenEndpointAuthMethod = req.TokenEndpointAuthMethod
-	metadata.IsConfidentialClient = isConfidentialClient(req.TokenEndpointAuthMethod)
+	metadata.IsConfidentialClient = IsConfidentialClient(req.TokenEndpointAuthMethod)
 
-	_, err = storage.ClientUpdate(ctx, clientID, metadata)
+	_, err = storage.ClientUpdate(ctx, metadata)
 	if err != nil {
 		return nil, err
 	}
@@ -274,8 +273,8 @@ func ValidateRegistrationRequest(req *ClientRegistrationRequest, allowedSchemes 
 	return nil
 }
 
-// isConfidentialClient 判断客户端类型
-func isConfidentialClient(method string) bool {
+// IsConfidentialClient 判断客户端类型
+func IsConfidentialClient(method string) bool {
 	// 默认为 confidential
 	if method == "" {
 		return true

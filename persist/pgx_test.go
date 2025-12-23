@@ -187,8 +187,7 @@ func TestUserLifecycle(t *testing.T) {
 
 	// 5. Update Profile
 	newEmail := "updated@example.com"
-	gotProfile.Email = &newEmail
-	err = storage.ProfileUpdate(ctx, gotProfile)
+	err = storage.ProfileMarkVerified(ctx, uid, newEmail)
 	require.NoError(t, err)
 	gotProfile, err = storage.ProfileGetByUserID(ctx, uid)
 	require.NoError(t, err)
@@ -275,13 +274,13 @@ func TestClientLifecycle(t *testing.T) {
 	assert.Equal(t, "Test Client", gotClient.(*oidc.ClientMetadata).Name)
 
 	// 3. List by Owner
-	clients, err := p.ClientListByOwner(ctx, ownerID)
+	clients, err := p.ClientListByOwner(ctx, ownerID, oidc.ListQuery{})
 	require.NoError(t, err)
 	assert.Len(t, clients, 1)
 
 	// 4. Update Client
 	metadata.Name = "Updated Client"
-	updated, err := p.ClientUpdate(ctx, clientID, metadata)
+	updated, err := p.ClientUpdate(ctx, metadata)
 	require.NoError(t, err)
 	assert.Equal(t, "Updated Client", updated.(*oidc.ClientMetadata).Name)
 

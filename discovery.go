@@ -338,7 +338,7 @@ func (r *RemoteKeySet) backgroundRefresh() {
 // doBackgroundRefresh 执行一次后台刷新
 func (r *RemoteKeySet) doBackgroundRefresh() {
 	// 使用 o11y.Run 包装后台刷新逻辑
-	err := o11y.Run(r.ctx, "oidc.jwks_refresh", func(ctx context.Context, state o11y.State) error {
+	err := o11y.Run(r.ctx, "OIDC.RefreshJWKS", func(ctx context.Context, state o11y.State) error {
 		state.Log.Debug().Str("jwks_uri", r.jwksURI).Msg("Starting background JWKS refresh")
 
 		jwks, ttl, err := r.fetchJWKS(ctx)

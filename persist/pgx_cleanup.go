@@ -14,7 +14,7 @@ import (
 func (s *PgxStorage) Cleanup(ctx context.Context) (int64, error) {
 	var totalDeleted int64
 
-	err := o11y.Run(ctx, "oidc.Storage.Cleanup", func(ctx context.Context, state o11y.State) error {
+	err := o11y.Run(ctx, "OIDC.CleanStorage", func(ctx context.Context, state o11y.State) error {
 		now := time.Now()
 		state.SetAttributes(attribute.String("cleanup_time", now.Format(time.RFC3339)))
 

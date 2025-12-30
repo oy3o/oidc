@@ -212,7 +212,7 @@ func (s *Server) ListClient(ctx context.Context, query ListQuery) ([]RegisteredC
 
 // RequestAuthorize 校验授权请求
 func (s *Server) RequestAuthorize(ctx context.Context, req *AuthorizeRequest) (client RegisteredClient, err error) {
-	err = o11y.Run(ctx, "oidc.RequestAuthorize", func(ctx context.Context, state o11y.State) error {
+	err = o11y.Run(ctx, "OIDC.AuthorizeRequest", func(ctx context.Context, state o11y.State) error {
 		state.SetAttributes(attribute.String("client_id", req.ClientID))
 		state.SetAttributes(attribute.String("response_type", req.ResponseType))
 		client, err = RequestAuthorize(ctx, s.storage, req)
@@ -223,7 +223,7 @@ func (s *Server) RequestAuthorize(ctx context.Context, req *AuthorizeRequest) (c
 
 // ResponseAuthorized 用户同意后生成重定向URL
 func (s *Server) ResponseAuthorized(ctx context.Context, req *AuthorizeRequest) (redirectURL string, err error) {
-	err = o11y.Run(ctx, "oidc.ResponseAuthorized", func(ctx context.Context, state o11y.State) error {
+	err = o11y.Run(ctx, "OIDC.AuthorizeResponse", func(ctx context.Context, state o11y.State) error {
 		state.SetAttributes(attribute.String("client_id", req.ClientID))
 		state.SetAttributes(attribute.String("user_id", req.UserID))
 		redirectURL, err = ResponseAuthorized(ctx, s.storage, req, s.cfg.CodeTTL)
@@ -249,7 +249,7 @@ func (s *Server) PushedAuthorization(ctx context.Context, req *PARRequest) (*PAR
 
 // Exchange 处理 Token 交换
 func (s *Server) Exchange(ctx context.Context, req *TokenRequest) (resp *IssuerResponse, err error) {
-	err = o11y.Run(ctx, "oidc.Exchange", func(ctx context.Context, state o11y.State) error {
+	err = o11y.Run(ctx, "OIDC.TokenExchange", func(ctx context.Context, state o11y.State) error {
 		state.SetAttributes(attribute.String("grant_type", req.GrantType))
 
 		if req.DPoPJKT == "" {
@@ -277,7 +277,7 @@ func (s *Server) Exchange(ctx context.Context, req *TokenRequest) (resp *IssuerR
 
 // RevokeToken 处理 Token 撤销
 func (s *Server) RevokeToken(ctx context.Context, req *RevocationRequest) error {
-	return o11y.Run(ctx, "oidc.RevokeToken", func(ctx context.Context, state o11y.State) error {
+	return o11y.Run(ctx, "OIDC.RevokeToken", func(ctx context.Context, state o11y.State) error {
 		return RevokeToken(ctx, s.storage, s.secretManager, s.hasher, s, req)
 	})
 }
@@ -350,7 +350,7 @@ func (s *Server) VerifyAccessToken(ctx context.Context, tokenStr string) (*Acces
 		var claims *AccessTokenClaims
 		// 我们把 o11y 放在 Do 里面，意味着只有“执行者”会产生详细的 Trace 和 Log
 		// 这对防 DDoS 是好事，减少了日志系统压力
-		err := o11y.Run(ctx, "oidc.VerifyAccessToken", func(ctx context.Context, state o11y.State) error {
+		err := o11y.Run(ctx, "OIDC.VerifyAccessToken", func(ctx context.Context, state o11y.State) error {
 			var err error
 			// 1. 解析并验证签名、Issuer
 			claims, err = s.ParseAccessToken(ctx, tokenStr)

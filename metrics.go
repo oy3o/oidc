@@ -14,17 +14,9 @@ import (
 //	defer shutdown(context.Background())
 //	oidc.RegisterMetrics()  // 注册 OIDC 指标
 func RegisterMetrics() {
-	// OIDC 密钥轮换指标
-	o11y.RegisterInt64Counter(
-		"oidc.key_rotation.total",
-		"Total number of key rotations performed",
-		"{rotation}",
-	)
-
-	// OIDC JWKS 刷新指标 (可选，如果需要更详细的监控)
-	// o11y.RegisterInt64Counter(
-	// 	"oidc.jwks_refresh.total",
-	// 	"Total number of JWKS refresh operations",
-	// 	"{refresh}",
-	// )
+	o11y.RegisterInt64Counter("oidc.key.rotation.total", "Total number of cryptographic key rotations performed.", "{rotation}")
+	o11y.RegisterInt64Counter("oidc.login.attempt.total", "Total count of login attempts. Differentiate outcomes via attributes (status=success|failure).", "{attempt}")
+	o11y.RegisterInt64Counter("oidc.user.registration.total", "Total number of new user registrations.", "{user}")
+	o11y.RegisterInt64Counter("oidc.code.sent.total", "Total number of verification codes (SMS/Email) sent.", "{event}")
+	o11y.RegisterFloat64Histogram("oidc.login.duration", "Duration of the login process.", "s")
 }

@@ -173,7 +173,7 @@ func (s *KeyRotationScheduler) RotateNow(ctx context.Context) error {
 	defer s.lock.Unlock(ctx, "rotate_key")
 
 	// 使用 o11y.Run 包装轮换逻辑，提供追踪、日志和指标
-	return o11y.Run(ctx, "oidc.key_rotation", func(ctx context.Context, state o11y.State) error {
+	return o11y.Run(ctx, "OIDC.KeyRotation", func(ctx context.Context, state o11y.State) error {
 		state.Log.Info().
 			Str("key_type", string(s.config.KeyType)).
 			Dur("grace_period", s.config.GracePeriod).
@@ -216,7 +216,7 @@ func (s *KeyRotationScheduler) RotateNow(ctx context.Context) error {
 			attribute.String("old_kid", oldKID),
 			attribute.String("key_type", string(s.config.KeyType)),
 		)
-		state.IncCounter("oidc.key_rotation.total")
+		state.IncCounter("oidc.key.rotation.total")
 
 		state.Log.Info().
 			Str("new_kid", newKID).

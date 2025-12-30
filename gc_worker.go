@@ -62,7 +62,7 @@ func (w *GCWorker) runCleanup(ctx context.Context) {
 	cleanupCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 
-	err := o11y.Run(cleanupCtx, "oidc.GCWorker.Cleanup", func(ctx context.Context, state o11y.State) error {
+	err := o11y.Run(cleanupCtx, "OIDC.CleanGCWorker", func(ctx context.Context, state o11y.State) error {
 		deleted, err := w.persistence.Cleanup(ctx)
 		if err != nil {
 			state.SetAttributes(attribute.String("error", err.Error()))

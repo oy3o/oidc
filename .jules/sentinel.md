@@ -1,0 +1,4 @@
+## 2024-03-13 - [Information Leakage in Error Response]
+**Vulnerability:** Found an information leakage vulnerability in `httpx/errors.go` where `err.Error()` was directly included in the `error_description` field for HTTP 500 responses.
+**Learning:** This could expose sensitive internal details (like database query failures or file paths) to external clients. Always sanitize error messages that are returned to the client and log the actual error on the server side instead.
+**Prevention:** Use a generic error message (e.g., "An internal server error occurred") for external HTTP responses while using `github.com/rs/zerolog/log` to record the exact `err.Error()` for internal observability.

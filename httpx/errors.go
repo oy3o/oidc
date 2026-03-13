@@ -7,6 +7,7 @@ import (
 	"github.com/bytedance/sonic"
 	"github.com/oy3o/httpx"
 	"github.com/oy3o/oidc"
+	"github.com/rs/zerolog/log"
 )
 
 // httpx errors
@@ -35,10 +36,11 @@ func Error(w http.ResponseWriter, r *http.Request, err error, opts ...httpx.Erro
 	}
 
 	// 3. 默认 500
+	log.Error().Err(err).Msg("Internal server error")
 	w.WriteHeader(http.StatusInternalServerError)
 	sonic.ConfigDefault.NewEncoder(w).Encode(&oidc.Error{
 		Code:        "server_error",
-		Description: err.Error(),
+		Description: "An internal server error occurred",
 	})
 }
 

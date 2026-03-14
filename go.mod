@@ -12,9 +12,9 @@ require (
 	github.com/jackc/pgx/v5 v5.8.0
 	github.com/lestrrat-go/jwx/v2 v2.1.6
 	github.com/nyaruka/phonenumbers v1.6.11
-	github.com/oy3o/httpx v1.5.6
-	github.com/oy3o/o11y v1.4.4
-	github.com/oy3o/singleflight v1.0.2
+	github.com/oy3o/httpx v1.5.7
+	github.com/oy3o/o11y v1.4.5
+	github.com/oy3o/singleflight v1.0.3
 	github.com/puzpuzpuz/xsync/v4 v4.4.0
 	github.com/redis/go-redis/v9 v9.18.0
 	github.com/rs/zerolog v1.34.0

@@ -117,12 +117,16 @@ CREATE TABLE IF NOT EXISTS oidc_clients (
     
     -- 数组类型，Go 结构体映射为 JSON 字符串存储在 TEXT 中
     redirect_uris TEXT,
+    logout_redirect_uris TEXT,
     grant_types TEXT,
     scope TEXT,
     
     logo_uri VARCHAR(255),
     token_endpoint_auth_method VARCHAR(50) DEFAULT 'client_secret_basic',
     is_confidential_client BOOLEAN DEFAULT FALSE,
+    
+    backchannel_logout_uri VARCHAR(255) NOT NULL DEFAULT '',
+    backchannel_logout_session_required BOOLEAN NOT NULL DEFAULT FALSE,
     
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -148,6 +152,7 @@ CREATE TABLE IF NOT EXISTS oidc_auth_codes (
     redirect_uri VARCHAR(255),
     scope TEXT,
     nonce VARCHAR(255),
+    session_id VARCHAR(255) NOT NULL DEFAULT '',
     
     -- PKCE
     code_challenge VARCHAR(255) NOT NULL,
@@ -159,6 +164,7 @@ CREATE TABLE IF NOT EXISTS oidc_auth_codes (
 
 CREATE INDEX IF NOT EXISTS idx_oidc_auth_codes_client_id ON oidc_auth_codes(client_id);
 CREATE INDEX IF NOT EXISTS idx_oidc_auth_codes_user_id ON oidc_auth_codes(user_id);
+CREATE INDEX IF NOT EXISTS idx_oidc_auth_codes_session_id ON oidc_auth_codes(session_id);
 CREATE INDEX IF NOT EXISTS idx_oidc_auth_codes_expires_at ON oidc_auth_codes(expires_at); -- 用于 GC
 CREATE INDEX IF NOT EXISTS idx_oidc_auth_codes_d_pop_jkt ON oidc_auth_codes(d_pop_jkt);
 
@@ -206,11 +212,13 @@ CREATE TABLE IF NOT EXISTS oidc_refresh_tokens (
     
     nonce VARCHAR(255),
     acr VARCHAR(255),
-    amr TEXT -- Go tag type:text (StringSlice)
+    amr TEXT, -- Go tag type:text (StringSlice)
+    session_id VARCHAR(255) NOT NULL DEFAULT ''
 );
 
 CREATE INDEX IF NOT EXISTS idx_oidc_refresh_tokens_client_id ON oidc_refresh_tokens(client_id);
 CREATE INDEX IF NOT EXISTS idx_oidc_refresh_tokens_user_id ON oidc_refresh_tokens(user_id);
+CREATE INDEX IF NOT EXISTS idx_oidc_refresh_tokens_session_id ON oidc_refresh_tokens(session_id);
 CREATE INDEX IF NOT EXISTS idx_oidc_refresh_tokens_expires_at ON oidc_refresh_tokens(expires_at);
 
 -- ----------------------------------------------------------------------------

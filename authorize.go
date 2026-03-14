@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/golang-jwt/jwt/v5"
 )
 
 // AuthorizeRequest 封装授权端点的请求参数
@@ -23,6 +25,7 @@ type AuthorizeRequest struct {
 	Nonce               string `form:"nonce" json:"nonce"`
 	CodeChallenge       string `form:"code_challenge" json:"code_challenge"`
 	CodeChallengeMethod string `form:"code_challenge_method" json:"code_challenge_method"`
+	ACRValues           string `form:"acr_values" json:"acr_values"`
 
 	// PAR (RFC 9126): 推送授权请求 URI
 	// 如果存在，忽略其他参数，从 PARStorage 加载完整请求
@@ -34,11 +37,12 @@ type AuthorizeRequest struct {
 	DPoPJKT string `form:"-" json:"-"`
 
 	// 上下文数据 (由调用者在用户登录/确认后填充)
-	UserID   string    `form:"-" json:"-"`
-	AuthTime time.Time `form:"-" json:"-"`
-	// FinalScope 允许调用者在业务层修改最终授予的 Scope (例如移除用户无权的 scope)
-	// 如果为空，将默认使用请求的 Scope
-	FinalScope string `form:"-" json:"-"`
+	UserID     string           `form:"-" json:"-"`
+	SessionID  string           `form:"-" json:"-"` // SSO会话ID
+	FinalScope string           `form:"-" json:"-"`
+	AuthTime   *jwt.NumericDate `form:"-" json:"-"`
+	ACR        string           `form:"-" json:"-"`
+	AMR        []AMR            `form:"-" json:"-"`
 }
 
 // RequestAuthorize 校验授权请求的基本参数。
@@ -59,13 +63,15 @@ func RequestAuthorize(ctx context.Context, storage Storage, req *AuthorizeReques
 		}
 
 		// 使用 PAR 中的参数替换当前请求
-		// 保留 UserID, AuthTime, FinalScope (由后续流程设置)
+		// 保留 UserID, SessionID, AuthTime, FinalScope (由后续流程设置)
 		userID := req.UserID
+		sessionID := req.SessionID
 		authTime := req.AuthTime
 		finalScope := req.FinalScope
 
 		*req = *parReq
 		req.UserID = userID
+		req.SessionID = sessionID
 		req.AuthTime = authTime
 		req.FinalScope = finalScope
 	}
@@ -162,14 +168,19 @@ func ResponseAuthorized(ctx context.Context, storage AuthCodeStorage, req *Autho
 		Code:                code,
 		ClientID:            clientID,
 		UserID:              userID,
-		AuthTime:            req.AuthTime,
 		ExpiresAt:           time.Now().Add(codeTTL),
+		ACR:                 req.ACR,
+		AMR:                 req.AMR,
+		SessionID:           req.SessionID,
 		RedirectURI:         req.RedirectURI,
 		Scope:               finalScope,
 		Nonce:               req.Nonce,
 		CodeChallenge:       req.CodeChallenge,
 		CodeChallengeMethod: req.CodeChallengeMethod,
 		DPoPJKT:             req.DPoPJKT, // DPoP 绑定
+	}
+	if req.AuthTime != nil {
+		session.AuthTime = req.AuthTime.Time
 	}
 
 	// 4. 持久化存储

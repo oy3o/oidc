@@ -136,7 +136,7 @@ func TestRegisterClient_ValidationFailures(t *testing.T) {
 				ClientName:   "Test App",
 				RedirectURIs: []string{"javascript:alert(1)"},
 			},
-			wantError: "invalid redirect_uri scheme",
+			wantError: "invalid scheme: javascript",
 		},
 	}
 
@@ -262,4 +262,43 @@ func TestValidateRegistrationRequest_RedirectURISchemes(t *testing.T) {
 			assert.Error(t, err, "URI should be invalid: %s", tt.uri)
 		}
 	}
+}
+
+func TestRegisterClient_LogoutRedirectURIs(t *testing.T) {
+	storage, _ := NewTestStorage(t)
+	hasher := &regTestHasher{}
+	ctx := context.Background()
+
+	req := &oidc.ClientRegistrationRequest{
+		ClientName:              "My App",
+		RedirectURIs:            []string{"https://client.example.com/cb"},
+		LogoutRedirectURIs:      []string{"https://client.example.com/logout-cb"},
+		TokenEndpointAuthMethod: "none",
+	}
+
+	// 1. 注册
+	resp, err := oidc.RegisterClient(ctx, storage, hasher, req)
+	require.NoError(t, err)
+
+	// 2. 验证响应
+	assert.Equal(t, req.LogoutRedirectURIs, resp.LogoutRedirectURIs)
+
+	// 3. 验证存储
+	storedClient, err := storage.ClientGetByID(ctx, oidc.BinaryUUID(uuid.MustParse(resp.ClientID)))
+	require.NoError(t, err)
+	assert.Equal(t, req.LogoutRedirectURIs, storedClient.GetLogoutRedirectURIs())
+
+	// 4. 验证更新
+	updateReq := &oidc.ClientRegistrationRequest{
+		ClientName:              "My App Updated",
+		RedirectURIs:            []string{"https://client.example.com/cb"},
+		LogoutRedirectURIs:      []string{"https://client.example.com/logout-cb-new"},
+		TokenEndpointAuthMethod: "none",
+	}
+	updateResp, err := oidc.ClientUpdate(ctx, storage, &oidc.ClientUpdateRequest{resp.ClientID, updateReq})
+	require.NoError(t, err)
+	assert.Equal(t, updateReq.LogoutRedirectURIs, updateResp.LogoutRedirectURIs)
+
+	storedClientUpdated, _ := storage.ClientGetByID(ctx, oidc.BinaryUUID(uuid.MustParse(resp.ClientID)))
+	assert.Equal(t, updateReq.LogoutRedirectURIs, storedClientUpdated.GetLogoutRedirectURIs())
 }

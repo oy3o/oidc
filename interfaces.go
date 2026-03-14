@@ -20,6 +20,9 @@ type RegisteredClient interface {
 	// GetRedirectURIs 返回注册的回调地址列表
 	GetRedirectURIs() []string
 
+	// GetLogoutRedirectURIs 返回注册的注销后回调地址列表 (OIDC RP-Initiated Logout)
+	GetLogoutRedirectURIs() []string
+
 	// GetGrantTypes 返回允许的授权类型 (e.g., "authorization_code", "refresh_token")
 	GetGrantTypes() []string
 
@@ -29,6 +32,12 @@ type RegisteredClient interface {
 
 	// IsConfidential 返回是否为机密客户端 (Confidential vs Public)
 	IsConfidential() bool
+
+	// GetBackchannelLogoutURI 返回后端注销回调地址 (OIDC Back-Channel Logout)
+	GetBackchannelLogoutURI() string
+
+	// GetBackchannelLogoutSessionRequired 返回是否在注销时需要包含 sid
+	GetBackchannelLogoutSessionRequired() bool
 
 	// ValidateSecret 验证输入的明文密钥。
 	// 对于 Public Client，此方法应直接返回 nil。
@@ -64,8 +73,9 @@ type ClientMetadata struct {
 	Name string `db:"name"`
 
 	// 数组类型处理：
-	RedirectURIs StringSlice `db:"redirect_uris"`
-	GrantTypes   StringSlice `db:"grant_types"`
+	RedirectURIs       StringSlice `db:"redirect_uris" json:"redirect_uris"`
+	LogoutRedirectURIs StringSlice `db:"logout_redirect_uris" json:"logout_redirect_uris"`
+	GrantTypes         StringSlice `db:"grant_types" json:"grant_types"`
 
 	// Scope: 空格分隔的字符串，或者也可以用 type:text
 	Scope string `db:"scope"`
@@ -76,6 +86,10 @@ type ClientMetadata struct {
 	// IsConfidentialClient: 区分公开/机密客户端
 	IsConfidentialClient bool `db:"is_confidential_client"`
 
+	// Back-Channel Logout
+	BackchannelLogoutURI             string `db:"backchannel_logout_uri"`
+	BackchannelLogoutSessionRequired bool   `db:"backchannel_logout_session_required"`
+
 	CreatedAt time.Time `db:"created_at"`
 	UpdatedAt time.Time `db:"updated_at"`
 }
@@ -84,9 +98,16 @@ func (ClientMetadata) TableName() string            { return "oidc_clients" }
 func (c *ClientMetadata) Metadata() *ClientMetadata { return c }
 func (c *ClientMetadata) GetID() BinaryUUID         { return c.ID }
 func (c *ClientMetadata) GetRedirectURIs() []string { return c.RedirectURIs }
-func (c *ClientMetadata) GetGrantTypes() []string   { return c.GrantTypes }
-func (c *ClientMetadata) GetScope() string          { return c.Scope }
-func (c *ClientMetadata) IsConfidential() bool      { return c.IsConfidentialClient }
+func (c *ClientMetadata) GetLogoutRedirectURIs() []string {
+	return c.LogoutRedirectURIs
+}
+func (c *ClientMetadata) GetGrantTypes() []string         { return c.GrantTypes }
+func (c *ClientMetadata) GetScope() string                { return c.Scope }
+func (c *ClientMetadata) IsConfidential() bool            { return c.IsConfidentialClient }
+func (c *ClientMetadata) GetBackchannelLogoutURI() string { return c.BackchannelLogoutURI }
+func (c *ClientMetadata) GetBackchannelLogoutSessionRequired() bool {
+	return c.BackchannelLogoutSessionRequired
+}
 func (c *ClientMetadata) Serialize() (string, error) {
 	// 1. 定义一个别名。Aux 拥有 ClientMetadata 的所有字段，
 	// 但不会继承 ClientMetadata 及其字段类型（SecretString）绑定的方法。
@@ -225,13 +246,15 @@ type AuthCodeSession struct {
 	ClientID BinaryUUID `db:"client_id"`
 	UserID   BinaryUUID `db:"user_id"`
 
-	AuthTime time.Time
+	AuthTime time.Time `db:"auth_time"`
 	// ExpiresAt: 必须加索引，用于定期清理过期数据 (GC)
 	ExpiresAt time.Time `db:"expires_at"`
 
 	// ACR/AMR: 认证上下文 (可选)
-	ACR string   `db:"acr"`
-	AMR []string `db:"amr"`
+	ACR string `db:"acr"`
+	AMR []AMR  `db:"amr"`
+
+	SessionID string `db:"session_id"` // SSO会话ID，用于注销广播
 
 	// 原始请求参数校验
 	RedirectURI string `db:"redirect_uri"`
@@ -273,15 +296,15 @@ type DeviceCodeSession struct {
 	ClientID BinaryUUID `db:"client_id"`
 	UserID   BinaryUUID `db:"user_id"` // 初始为空，用户授权后填充
 
+	ExpiresAt  time.Time `db:"expires_at"`  // 用于清理
+	LastPolled time.Time `db:"last_polled"` // 用于频率限制 (Rate Limiting)检查
 	Scope      string    `db:"scope"`
-	ExpiresAt  time.Time `db:"expires_at"` // 用于清理
-	LastPolled time.Time // 用于频率限制 (Rate Limiting)检查
 
 	// Status: pending, allowed, denied
 	Status string `db:"status"`
 
-	AuthTime        time.Time
-	AuthorizedScope string `db:"authorized_scope"` // 用户实际同意的 Scope
+	AuthorizedScope string    `db:"authorized_scope"` // 用户实际同意的 Scope
+	AuthTime        time.Time `db:"auth_time"`        // 用户完成认证的时间
 }
 
 func (DeviceCodeSession) TableName() string { return "oidc_device_codes" }
@@ -323,15 +346,16 @@ type RefreshTokenSession struct {
 	Scope string `db:"scope"`
 
 	// 默认映射 auth_time
-	AuthTime time.Time
+	AuthTime time.Time `db:"auth_time"`
 
 	// 默认映射 expires_at，指定 index
 	ExpiresAt time.Time `db:"expires_at"`
 
 	// 上下文信息
-	Nonce string      // 默认 varchar
-	ACR   string      // 默认 varchar
-	AMR   StringSlice `db:"amr"`
+	Nonce     string      `db:"nonce"` // 默认 varchar
+	ACR       string      `db:"acr"`   // 默认 varchar
+	AMR       StringSlice `db:"amr"`
+	SessionID string      `db:"session_id"` // SSO会话ID
 }
 
 func (RefreshTokenSession) TableName() string { return "oidc_refresh_tokens" }

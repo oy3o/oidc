@@ -23,11 +23,12 @@ type IDTokenClaims struct {
 	jwt.RegisteredClaims
 
 	// OIDC 特定声明
-	Nonce           string `json:"nonce,omitempty"`     // 关联客户端会话的字符串值，用于缓解重放攻击
-	AuthTime        int64  `json:"auth_time,omitempty"` // 终端用户认证发生的时间
-	AuthorizedParty string `json:"azp,omitempty"`       // 授权方 (Authorized Party)，当 aud 包含多个值时必须存在
-	AtHash          string `json:"at_hash,omitempty"`   // Access Token 的哈希值，用于验证 Access Token
-	CHash           string `json:"c_hash,omitempty"`    // Code 的哈希值
+	Nonce           string           `json:"nonce,omitempty"`     // 关联客户端会话的字符串值，用于缓解重放攻击
+	AuthorizedParty string           `json:"azp,omitempty"`       // 授权方 (Authorized Party)，当 aud 包含多个值时必须存在
+	AtHash          string           `json:"at_hash,omitempty"`   // Access Token 的哈希值，用于验证 Access Token
+	CHash           string           `json:"c_hash,omitempty"`    // Code 的哈希值
+	AuthTime        *jwt.NumericDate `json:"auth_time,omitempty"` // 终端用户认证发生的时间
+	SessionID       string           `json:"sid,omitempty"`       // OIDC Front/Back-Channel Logout 需要的 Session ID
 
 	// Profile 声明 (标准 Scope: profile, email, phone)
 	Name              *string `json:"name,omitempty"`
@@ -52,6 +53,18 @@ func (ic *IDTokenClaims) SignedString(method jwt.SigningMethod, privateKey crypt
 
 type IDToken SecretString
 
+// LogoutTokenClaims 表示 OIDC Back-Channel Logout Token 的标准载荷。
+type LogoutTokenClaims struct {
+	jwt.RegisteredClaims
+	Events    map[string]interface{} `json:"events"`
+	SessionID string                 `json:"sid,omitempty"`
+}
+
+func (lc *LogoutTokenClaims) SignedString(method jwt.SigningMethod, privateKey crypto.PrivateKey) (string, error) {
+	token := jwt.NewWithClaims(method, lc)
+	return token.SignedString(privateKey)
+}
+
 // AccessTokenClaims 表示自定义的 Access Token 载荷。
 // 虽然 OAuth2 没有严格规定 Access Token 格式，但使用 JWT 是常见做法。
 type AccessTokenClaims struct {
@@ -62,6 +75,11 @@ type AccessTokenClaims struct {
 
 	// --- 扩展字段 ---
 	AuthorizedParty string `json:"azp,omitempty"` // 哪个 Client 发起的请求？(用于限流、审计)
+
+	// --- 认证强度 ---
+	AuthTime *jwt.NumericDate `json:"auth_time,omitempty"`
+	ACR      string           `json:"acr,omitempty"`
+	AMR      []AMR            `json:"amr,omitempty"`
 
 	// --- DPoP (RFC 9449) ---
 	// Confirmation claim: 用于 DPoP sender-constrained tokens

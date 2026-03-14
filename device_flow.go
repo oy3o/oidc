@@ -8,6 +8,7 @@ import (
 	"math/big"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/rs/zerolog/log"
 )
 
@@ -215,7 +216,7 @@ func DeviceTokenExchange(ctx context.Context, storage Storage, issuer *Issuer, r
 		ClientID: session.ClientID,
 		UserID:   session.UserID,
 		Scopes:   session.AuthorizedScope, // 使用用户最终授权的 Scope
-		AuthTime: session.AuthTime,
+		AuthTime: jwt.NewNumericDate(session.AuthTime),
 	}
 
 	resp, err := issuer.IssueOIDCTokens(ctx, issueReq)

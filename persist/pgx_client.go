@@ -37,8 +37,8 @@ func (s *PgxStorage) ClientCreate(ctx context.Context, metadata *oidc.ClientMeta
 	// 这里假设 ClientMetadata 的字段都对应数据库列
 	// 注意：Array 字段 (RedirectURIs, GrantTypes 等) pgx 可以自动处理 Go slice -> Postgres Array
 	query, args, err := psql.Insert(clientTable).
-		Columns("id", "name", "secret", "redirect_uris", "grant_types", "scope", "logo_uri", "token_endpoint_auth_method", "is_confidential_client", "owner_id", "updated_at").
-		Values(metadata.ID, metadata.Name, metadata.Secret, metadata.RedirectURIs, metadata.GrantTypes, metadata.Scope, metadata.LogoURI, metadata.TokenEndpointAuthMethod, metadata.IsConfidentialClient, metadata.OwnerID, metadata.UpdatedAt).
+		Columns("id", "name", "secret", "redirect_uris", "logout_redirect_uris", "grant_types", "scope", "logo_uri", "token_endpoint_auth_method", "is_confidential_client", "backchannel_logout_uri", "backchannel_logout_session_required", "owner_id", "updated_at").
+		Values(metadata.ID, metadata.Name, metadata.Secret, metadata.RedirectURIs, metadata.LogoutRedirectURIs, metadata.GrantTypes, metadata.Scope, metadata.LogoURI, metadata.TokenEndpointAuthMethod, metadata.IsConfidentialClient, metadata.BackchannelLogoutURI, metadata.BackchannelLogoutSessionRequired, metadata.OwnerID, metadata.UpdatedAt).
 		ToSql()
 	if err != nil {
 		return nil, err
@@ -55,11 +55,14 @@ func (s *PgxStorage) ClientUpdate(ctx context.Context, metadata *oidc.ClientMeta
 	builder := psql.Update(clientTable).
 		Set("name", metadata.Name).
 		Set("redirect_uris", metadata.RedirectURIs).
+		Set("logout_redirect_uris", metadata.LogoutRedirectURIs).
 		Set("grant_types", metadata.GrantTypes).
 		Set("scope", metadata.Scope).
 		Set("logo_uri", metadata.LogoURI).
 		Set("token_endpoint_auth_method", metadata.TokenEndpointAuthMethod).
 		Set("is_confidential_client", metadata.IsConfidentialClient).
+		Set("backchannel_logout_uri", metadata.BackchannelLogoutURI).
+		Set("backchannel_logout_session_required", metadata.BackchannelLogoutSessionRequired).
 		Set("updated_at", time.Now()).
 		Where(map[string]interface{}{"id": metadata.ID})
 

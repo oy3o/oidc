@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/golang-jwt/jwt/v5"
 )
 
 // TokenRequest 封装了 /token 端点的标准参数
@@ -140,14 +142,15 @@ func ExchangeCode(ctx context.Context, storage Storage, hasher Hasher, issuer *I
 	}
 
 	issueReq := &IssuerRequest{
-		ClientID: clientID,
-		UserID:   session.UserID,
-		Scopes:   session.Scope,
-		Audience: []string{clientID.String()}, // 默认 Audience 是 ClientID
-		Nonce:    session.Nonce,               // ID Token 需要
-		Code:     Code(req.Code),              // 用于计算 c_hash
-		AuthTime: session.AuthTime,
-		DPoPJKT:  session.DPoPJKT,
+		ClientID:  clientID,
+		UserID:    session.UserID,
+		Scopes:    session.Scope,
+		Audience:  []string{clientID.String()}, // 默认 Audience 是 ClientID
+		Nonce:     session.Nonce,               // ID Token 需要
+		Code:      Code(req.Code),              // 用于计算 c_hash
+		AuthTime:  jwt.NewNumericDate(session.AuthTime),
+		DPoPJKT:   session.DPoPJKT,
+		SessionID: session.SessionID,
 
 		// 可以在此注入用户信息 (Profile)，如果 Issuer 需要放入 ID Token
 		Name:                profile.Name,
@@ -186,6 +189,7 @@ func ExchangeCode(ctx context.Context, storage Storage, hasher Hasher, issuer *I
 		ExpiresAt: time.Now().Add(issuer.cfg.RefreshTokenTTL),
 		ACR:       session.ACR,
 		AMR:       session.AMR,
+		SessionID: session.SessionID,
 	}
 
 	if err := storage.RefreshTokenCreate(ctx, rtSession); err != nil {
@@ -260,11 +264,12 @@ func RefreshTokens(ctx context.Context, storage Storage, secretManager *SecretMa
 		UserID:   oldSession.UserID,
 		Scopes:   finalScope,
 		Audience: []string{clientID.String()},
-		AuthTime: oldSession.AuthTime,
+		AuthTime: jwt.NewNumericDate(oldSession.AuthTime),
 		// 对于 Refresh Token，通常不强制要求 DPoP 绑定，或者沿用旧的 JKT
 		// 如果需要 DPoP Rotate，这里需要处理 req.DPoPJKT
 		// 目前假设 Access Token 继承 Refresh Token 的属性，或者根据请求重新绑定
-		DPoPJKT: req.DPoPJKT,
+		DPoPJKT:   req.DPoPJKT,
+		SessionID: oldSession.SessionID,
 	}
 
 	resp, err := issuer.RefreshOIDCTokens(ctx, issueReq)
@@ -284,6 +289,7 @@ func RefreshTokens(ctx context.Context, storage Storage, secretManager *SecretMa
 		ExpiresAt: time.Now().Add(issuer.cfg.RefreshTokenTTL),
 		ACR:       oldSession.ACR,
 		AMR:       oldSession.AMR,
+		SessionID: oldSession.SessionID,
 	}
 
 	// 执行原子轮换：删除旧的，保存新的
@@ -331,7 +337,7 @@ func ExchangeClientCredentials(ctx context.Context, storage ClientStorage, hashe
 		UserID:   client.GetID(), // sub = client_id
 		Scopes:   finalScope,
 		Audience: []string{client.GetID().String()}, // 或者是配置的 Resource Server ID
-		AuthTime: time.Now(),
+		AuthTime: jwt.NewNumericDate(time.Now()),
 		DPoPJKT:  req.DPoPJKT, // 支持 DPoP for M2M
 	}
 

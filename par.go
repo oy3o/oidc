@@ -27,6 +27,11 @@ type PARRequest struct {
 	CodeChallenge       string `form:"code_challenge" json:"code_challenge"`
 	CodeChallengeMethod string `form:"code_challenge_method" json:"code_challenge_method"`
 
+	// ACR
+	ACRValues string `form:"acr_values" json:"acr_values"`
+	ACR       string `form:"-" json:"-"`
+	AMR       []AMR  `form:"-" json:"-"`
+
 	// DPoP (RFC 9449): JWK Thumbprint from DPoP proof
 	// 由 HTTP Handler 验证 DPoP Proof 后提取并传入
 	DPoPJKT string `form:"-" json:"-"`
@@ -75,6 +80,9 @@ func PushedAuthorization(
 		Nonce:               req.Nonce,
 		CodeChallenge:       req.CodeChallenge,
 		CodeChallengeMethod: req.CodeChallengeMethod,
+		ACRValues:           req.ACRValues,
+		ACR:                 req.ACR,
+		AMR:                 req.AMR,
 		DPoPJKT:             req.DPoPJKT, // DPoP 绑定
 	}
 

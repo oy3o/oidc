@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/oy3o/oidc"
 	"github.com/stretchr/testify/assert"
@@ -227,7 +228,7 @@ func TestResponseAuthorized_Success(t *testing.T) {
 	ctx := context.Background()
 
 	userID := uuid.New().String()
-	authTime := time.Now()
+	authTime := jwt.NewNumericDate(time.Now())
 
 	req := &oidc.AuthorizeRequest{
 		ClientID:            client.GetID().String(),
@@ -264,7 +265,7 @@ func TestResponseAuthorized_Success(t *testing.T) {
 	assert.Equal(t, client.GetID(), session.ClientID)
 	assert.Equal(t, userID, session.UserID.String())
 	assert.Equal(t, "openid profile", session.Scope)
-	assert.WithinDuration(t, authTime, session.AuthTime, time.Second)
+	assert.WithinDuration(t, authTime.Time, session.AuthTime, time.Second)
 }
 
 func TestResponseAuthorized_MissingUserID(t *testing.T) {
@@ -296,7 +297,7 @@ func TestResponseAuthorized_FinalScope(t *testing.T) {
 		CodeChallenge:       "challenge",
 		CodeChallengeMethod: "S256",
 		UserID:              uuid.New().String(),
-		AuthTime:            time.Now(),
+		AuthTime:            jwt.NewNumericDate(time.Now()),
 	}
 
 	redirectURL, err := server.ResponseAuthorized(ctx, req)

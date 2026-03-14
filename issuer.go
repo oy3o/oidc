@@ -72,9 +72,12 @@ type IssuerRequest struct {
 	Scopes   string     // Space delimited scopes
 	Audience []string   // Resource Server URIs
 
-	Nonce    string    // 仅用于 Implicit/AuthCode Flow 的 Issue 阶段
-	Code     Code      // 关联的 Authorization Code (如果适用，用于计算 c_hash)
-	AuthTime time.Time // 用户完成认证的时间
+	Nonce     string           // 仅用于 Implicit/AuthCode Flow 的 Issue 阶段
+	Code      Code             // 关联的 Authorization Code (如果适用，用于计算 c_hash)
+	AuthTime  *jwt.NumericDate // 用户完成认证的时间
+	ACR       string           // 认证强度
+	AMR       []AMR            // 认证方法
+	SessionID string           // SSO会话ID
 
 	// --- TTL 覆盖策略 ---
 	// 如果设置了以下字段（大于0），则使用该时间；否则使用 Config 中的默认时间。
@@ -287,6 +290,9 @@ func (iss *Issuer) accessToken(ctx context.Context, req *IssuerRequest, ttl time
 		},
 		Scope:           req.Scopes,
 		AuthorizedParty: req.ClientID.String(),
+		ACR:             req.ACR,
+		AMR:             req.AMR,
+		AuthTime:        req.AuthTime,
 	}
 
 	// [DPoP] 如果提供了 JKT，添加 cnf claim
@@ -365,7 +371,7 @@ func (g *Issuer) idToken(ctx context.Context, req *IssuerRequest, at AccessToken
 			ExpiresAt: jwt.NewNumericDate(now.Add(ttl)),
 			IssuedAt:  jwt.NewNumericDate(now),
 		},
-		AuthTime:        req.AuthTime.Unix(),
+		AuthTime:        req.AuthTime,
 		AtHash:          atHash,
 		CHash:           cHash,
 		AuthorizedParty: req.ClientID.String(),

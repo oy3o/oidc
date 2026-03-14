@@ -12,13 +12,14 @@ import (
 
 // ClientRegistrationRequest RFC 7591 Client Registration Request
 type ClientRegistrationRequest struct {
-	RedirectURIs  []string `json:"redirect_uris"`
-	GrantTypes    []string `json:"grant_types"`
-	ResponseTypes []string `json:"response_types"`
-	Scope         string   `json:"scope"`
-	ClientName    string   `json:"client_name"`
-	LogoURI       string   `json:"logo_uri,omitempty"`
-	ClientURI     string   `json:"client_uri,omitempty"`
+	RedirectURIs       []string `json:"redirect_uris"`
+	LogoutRedirectURIs []string `json:"logout_redirect_uris,omitempty"`
+	GrantTypes         []string `json:"grant_types"`
+	ResponseTypes      []string `json:"response_types"`
+	Scope              string   `json:"scope"`
+	ClientName         string   `json:"client_name"`
+	LogoURI            string   `json:"logo_uri,omitempty"`
+	ClientURI          string   `json:"client_uri,omitempty"`
 
 	// auth_method 决定了是否需要生成 secret
 	// options: client_secret_basic, client_secret_post, none, private_key_jwt
@@ -34,11 +35,12 @@ type ClientRegistrationResponse struct {
 	ClientSecret          string `json:"client_secret,omitempty"` // 仅在创建或重置时返回明文
 	ClientSecretExpiresAt int64  `json:"client_secret_expires_at,omitempty"`
 
-	RedirectURIs []string `json:"redirect_uris"`
-	GrantTypes   []string `json:"grant_types"`
-	Scope        string   `json:"scope"`
-	ClientName   string   `json:"client_name"`
-	LogoURI      string   `json:"logo_uri,omitempty"`
+	RedirectURIs       []string `json:"redirect_uris"`
+	LogoutRedirectURIs []string `json:"logout_redirect_uris,omitempty"`
+	GrantTypes         []string `json:"grant_types"`
+	Scope              string   `json:"scope"`
+	ClientName         string   `json:"client_name"`
+	LogoURI            string   `json:"logo_uri,omitempty"`
 
 	TokenEndpointAuthMethod string `json:"token_endpoint_auth_method"`
 	RegistrationAccessToken string `json:"registration_access_token,omitempty"`
@@ -92,6 +94,7 @@ func RegisterClient(ctx context.Context, storage ClientStorage, hasher Hasher, r
 		ID:                      clientID,
 		OwnerID:                 ownerID, // 需在 ClientMetadata 结构体中添加此字段
 		RedirectURIs:            req.RedirectURIs,
+		LogoutRedirectURIs:      req.LogoutRedirectURIs,
 		GrantTypes:              grantTypes,
 		Scope:                   req.Scope,
 		Name:                    req.ClientName,
@@ -135,6 +138,7 @@ func RegisterClient(ctx context.Context, storage ClientStorage, hasher Hasher, r
 		ClientSecret:            plainSecret,
 		ClientSecretExpiresAt:   secretExpiresAt,
 		RedirectURIs:            metadata.RedirectURIs,
+		LogoutRedirectURIs:      metadata.LogoutRedirectURIs,
 		GrantTypes:              metadata.GrantTypes,
 		Scope:                   metadata.Scope,
 		ClientName:              metadata.Name,
@@ -182,6 +186,9 @@ func ClientUpdate(ctx context.Context, storage ClientStorage, req *ClientUpdateR
 	if len(req.RedirectURIs) > 0 {
 		metadata.RedirectURIs = req.RedirectURIs
 	}
+	if len(req.LogoutRedirectURIs) > 0 {
+		metadata.LogoutRedirectURIs = req.LogoutRedirectURIs
+	}
 	if len(req.GrantTypes) > 0 {
 		metadata.GrantTypes = req.GrantTypes
 	}
@@ -203,10 +210,11 @@ func ClientUpdate(ctx context.Context, storage ClientStorage, req *ClientUpdateR
 	}
 
 	return &ClientRegistrationResponse{
-		ClientID:     metadata.ID.String(),
-		RedirectURIs: metadata.RedirectURIs,
-		ClientName:   metadata.Name, // 简化返回
-		Scope:        metadata.Scope,
+		ClientID:           metadata.ID.String(),
+		RedirectURIs:       metadata.RedirectURIs,
+		LogoutRedirectURIs: metadata.LogoutRedirectURIs,
+		ClientName:         metadata.Name, // 简化返回
+		Scope:              metadata.Scope,
 	}, nil
 }
 
@@ -239,37 +247,46 @@ func ValidateRegistrationRequest(req *ClientRegistrationRequest, allowedSchemes 
 	}
 
 	for _, uri := range req.RedirectURIs {
-		u, err := url.Parse(uri)
-		if err != nil || !u.IsAbs() {
-			return fmt.Errorf("%w: invalid redirect_uri: %s", ErrInvalidRequest, uri)
-		}
-
-		// [安全增强] Redirect URI 验证
-		// 1. 对于 http/https scheme，必须使用 https（生产环境）
-		// 2. localhost 仅在开发模式下允许
-		// 3. 自定义 Scheme 必须严格白名单
-		switch u.Scheme {
-		case "https":
-			// HTTPS 总是允许
-		case "http":
-			// HTTP 仅允许 localhost（开发环境）
-			// TODO: 添加 DevMode 配置，生产环境禁用
-			if u.Hostname() != "localhost" && u.Hostname() != "127.0.0.1" {
-				return fmt.Errorf("%w: http scheme only allowed for localhost, got %s", ErrInvalidRequest, u.Hostname())
-			}
-		default:
-			scheme := strings.ToLower(u.Scheme)
-			if _, ok := allowedSchemes[scheme]; !ok {
-				return fmt.Errorf("%w: invalid redirect_uri scheme: %s", ErrInvalidRequest, u.Scheme)
-			}
-		}
-
-		// 禁止使用 Fragment (#)
-		if u.Fragment != "" {
-			return fmt.Errorf("%w: redirect_uri must not contain fragment: %s", ErrInvalidRequest, uri)
+		if err := validateURI(uri, allowedSchemes); err != nil {
+			return fmt.Errorf("%w: redirect_uri error: %v", ErrInvalidRequest, err)
 		}
 	}
 
+	for _, uri := range req.LogoutRedirectURIs {
+		if err := validateURI(uri, allowedSchemes); err != nil {
+			return fmt.Errorf("%w: post_logout_redirect_uri error: %v", ErrInvalidRequest, err)
+		}
+	}
+
+	return nil
+}
+
+func validateURI(uri string, allowedSchemes map[string]struct{}) error {
+	u, err := url.Parse(uri)
+	if err != nil || !u.IsAbs() {
+		return fmt.Errorf("invalid uri: %s", uri)
+	}
+
+	// [安全增强] URI 验证
+	switch u.Scheme {
+	case "https":
+		// HTTPS 总是允许
+	case "http":
+		// HTTP 仅允许 localhost（开发环境）
+		if u.Hostname() != "localhost" && u.Hostname() != "127.0.0.1" {
+			return fmt.Errorf("http scheme only allowed for localhost, got %s", u.Hostname())
+		}
+	default:
+		scheme := strings.ToLower(u.Scheme)
+		if _, ok := allowedSchemes[scheme]; !ok {
+			return fmt.Errorf("invalid scheme: %s", u.Scheme)
+		}
+	}
+
+	// 禁止使用 Fragment (#)
+	if u.Fragment != "" {
+		return fmt.Errorf("uri must not contain fragment: %s", uri)
+	}
 	return nil
 }
 

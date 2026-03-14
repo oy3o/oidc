@@ -10,8 +10,8 @@ import (
 
 func (s *PgxStorage) RefreshTokenCreate(ctx context.Context, session *oidc.RefreshTokenSession) error {
 	query, args, err := psql.Insert("oidc_refresh_tokens").
-		Columns("id", "client_id", "user_id", "scope", "nonce", "auth_time", "expires_at", "acr", "amr").
-		Values(session.ID, session.ClientID, session.UserID, session.Scope, session.Nonce, session.AuthTime, session.ExpiresAt, session.ACR, session.AMR).
+		Columns("id", "client_id", "user_id", "scope", "nonce", "auth_time", "expires_at", "acr", "amr", "session_id").
+		Values(session.ID, session.ClientID, session.UserID, session.Scope, session.Nonce, session.AuthTime, session.ExpiresAt, session.ACR, session.AMR, session.SessionID).
 		ToSql()
 	if err != nil {
 		return err
@@ -74,8 +74,8 @@ func (s *PgxStorage) RefreshTokenRotate(ctx context.Context, oldTokenID oidc.Has
 
 		// 2. 插入新令牌
 		insQuery, insArgs, err := psql.Insert("oidc_refresh_tokens").
-			Columns("id", "client_id", "user_id", "scope", "nonce", "auth_time", "expires_at", "acr", "amr").
-			Values(newSession.ID, newSession.ClientID, newSession.UserID, newSession.Scope, newSession.Nonce, newSession.AuthTime, newSession.ExpiresAt, newSession.ACR, newSession.AMR).
+			Columns("id", "client_id", "user_id", "scope", "nonce", "auth_time", "expires_at", "acr", "amr", "session_id").
+			Values(newSession.ID, newSession.ClientID, newSession.UserID, newSession.Scope, newSession.Nonce, newSession.AuthTime, newSession.ExpiresAt, newSession.ACR, newSession.AMR, newSession.SessionID).
 			ToSql()
 		if err != nil {
 			return err

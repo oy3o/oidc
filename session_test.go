@@ -2,10 +2,13 @@ package oidc_test
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"testing"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/oy3o/oidc"
 	"github.com/stretchr/testify/assert"
@@ -41,14 +44,14 @@ func setupSessionTest(t *testing.T) (*oidc.Server, oidc.Storage, oidc.Registered
 	require.NoError(t, err)
 
 	// 创建客户端
-	// 注意：session.go 中简化了逻辑，暂时复用 RedirectURIs 作为 PostLogoutRedirectURIs 的白名单
 	clientID := oidc.BinaryUUID(uuid.New())
 	clientMeta := &oidc.ClientMetadata{
-		ID:           clientID,
-		RedirectURIs: []string{"https://client.example.com/cb", "https://client.example.com/logout_cb"},
-		GrantTypes:   []string{"authorization_code"},
-		Scope:        "openid profile",
-		Name:         "Session Test Client",
+		ID:                 clientID,
+		RedirectURIs:       []string{"https://client.example.com/cb"},
+		LogoutRedirectURIs: []string{"https://client.example.com/logout_cb"},
+		GrantTypes:         []string{"authorization_code"},
+		Scope:              "openid profile",
+		Name:               "Session Test Client",
 	}
 
 	client, err := storage.ClientCreate(context.Background(), clientMeta)
@@ -201,4 +204,75 @@ func TestEndSession_RevokeOnlyAccessToken(t *testing.T) {
 	claims, _ := server.ParseAccessToken(ctx, tokens.AccessToken)
 	isRevoked, _ := storage.AccessTokenIsRevoked(ctx, claims.ID)
 	assert.True(t, isRevoked, "Access token should be revoked even without id_token_hint")
+}
+
+func TestEndSession_BackchannelLogout(t *testing.T) {
+	server, storage, client := setupSessionTest(t)
+	ctx := context.Background()
+
+	// 1. Setup mock client server to receive the logout token
+	logoutTokenChan := make(chan string, 1)
+	mockClientServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "POST", r.Method)
+		err := r.ParseForm()
+		assert.NoError(t, err)
+		token := r.FormValue("logout_token")
+		assert.NotEmpty(t, token)
+		logoutTokenChan <- token
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer mockClientServer.Close()
+
+	// Update client Metadata with the backchannel URI
+	meta := client.(*oidc.ClientMetadata)
+	meta.BackchannelLogoutURI = mockClientServer.URL
+	meta.BackchannelLogoutSessionRequired = true
+	_, err := storage.ClientUpdate(ctx, meta)
+	require.NoError(t, err)
+
+	userID := oidc.BinaryUUID(uuid.New())
+
+	// 2. Issue a token and save the RT session with a SessionID
+	issueReq := &oidc.IssuerRequest{
+		ClientID:  client.GetID(),
+		UserID:    userID,
+		Scopes:    "openid profile",
+		SessionID: "mock-session-id-123",
+	}
+	tokens, err := server.Issuer().IssueOIDCTokens(ctx, issueReq)
+	require.NoError(t, err)
+
+	rtHash := oidc.RefreshToken(tokens.RefreshToken).HashForDB()
+	err = storage.RefreshTokenCreate(ctx, &oidc.RefreshTokenSession{
+		ID:        rtHash,
+		ClientID:  client.GetID(),
+		UserID:    userID,
+		SessionID: "mock-session-id-123",
+		ExpiresAt: time.Now().Add(24 * time.Hour),
+	})
+	require.NoError(t, err)
+
+	// 3. Trigger EndSession
+	req := &oidc.EndSessionRequest{
+		IDTokenHint: tokens.IDToken,
+	}
+	_, err = oidc.EndSession(ctx, storage, server, req)
+	require.NoError(t, err)
+
+	// 4. Wait for the background goroutine to post the token
+	select {
+	case token := <-logoutTokenChan:
+		// parse and verify the logout token
+		parser := jwt.NewParser()
+		claims := &oidc.LogoutTokenClaims{}
+		_, _, err := parser.ParseUnverified(token, claims)
+		require.NoError(t, err)
+		assert.Equal(t, "mock-session-id-123", claims.SessionID)
+		assert.NotNil(t, claims.Events)
+		assert.Contains(t, claims.Events, "http://schemas.openid.net/event/backchannel-logout")
+		assert.Equal(t, server.Config().Issuer, claims.Issuer)
+		assert.Contains(t, claims.Audience, client.GetID().String())
+	case <-time.After(2 * time.Second):
+		t.Fatal("Timeout waiting for backchannel logout request")
+	}
 }

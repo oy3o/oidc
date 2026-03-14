@@ -150,8 +150,8 @@ func CheckUserActived(ctx context.Context, s AuthStorage, idenifierVerifier Iden
 	// 检查用户是否激活
 	if user.IsPending() {
 		go func() {
-			// 使用独立的 context 处理异步发送，避免 caller context 取消导致发送中断
-			idenifierVerifier.IssueOTP(context.Background(), IdenType(identType), "login", identifier)
+			// 使用无超时的 context，或者基于后台的 context 处理异步发送，避免 caller context 取消导致发送中断
+			_ = idenifierVerifier.IssueOTP(context.WithoutCancel(ctx), IdenType(identType), "login", identifier)
 		}()
 		return nil, oidc.ErrUserNotConfirmed
 	}

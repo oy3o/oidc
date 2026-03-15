@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"sync"
 	"net/url"
 	"strings"
 	"time"
@@ -104,7 +105,7 @@ func EndSession(ctx context.Context, storage Storage, server interface {
 
 	// 5. 触发 Back-Channel Logout (异步)
 	if len(sessionsToLogout) > 0 {
-		go broadcastBackchannelLogout(storage, server, sessionsToLogout)
+		go broadcastBackchannelLogout(ctx, storage, server, sessionsToLogout)
 	}
 
 	// 6. 构建返回 URL
@@ -123,12 +124,14 @@ func EndSession(ctx context.Context, storage Storage, server interface {
 }
 
 // broadcastBackchannelLogout 向受影响的客户端广播注销令牌
-func broadcastBackchannelLogout(storage Storage, issuer interface {
+func broadcastBackchannelLogout(ctx context.Context, storage Storage, issuer interface {
 	KeyManager() *KeyManager
 	Config() *ServerConfig
 }, sessions []*RefreshTokenSession) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 	defer cancel()
+
+	var wg sync.WaitGroup
 
 	// 避免对同一个 client 发送多次请求
 	visitedClients := make(map[BinaryUUID]bool)
@@ -189,21 +192,25 @@ func broadcastBackchannelLogout(storage Storage, issuer interface {
 			continue
 		}
 
+		wg.Add(1)
 		// 发送 HTTP POST 请求
-		go func(uri string, logoutToken string) {
-			_, err := sendLogoutRequest(uri, logoutToken)
+		go func(ctx context.Context, uri string, logoutToken string) {
+			defer wg.Done()
+			_, err := sendLogoutRequest(ctx, uri, logoutToken)
 			if err != nil {
 				log.Warn().Err(err).Str("uri", uri).Msg("Failed to send back-channel logout request")
 			}
-		}(logoutURI, signedToken)
+		}(ctx, logoutURI, signedToken)
 	}
+
+	wg.Wait()
 }
 
-func sendLogoutRequest(uri string, logoutToken string) (*http.Response, error) {
+func sendLogoutRequest(ctx context.Context, uri string, logoutToken string) (*http.Response, error) {
 	data := url.Values{}
 	data.Set("logout_token", logoutToken)
 
-	req, err := http.NewRequest("POST", uri, strings.NewReader(data.Encode()))
+	req, err := http.NewRequestWithContext(ctx, "POST", uri, strings.NewReader(data.Encode()))
 	if err != nil {
 		return nil, err
 	}

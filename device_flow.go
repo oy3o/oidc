@@ -184,8 +184,23 @@ func DeviceTokenExchange(ctx context.Context, storage Storage, issuer *Issuer, r
 		return nil, fmt.Errorf("%w: invalid device_code", ErrInvalidGrant)
 	}
 
+	// Rate Limiting check (RFC 8628 Section 3.5)
+	now := time.Now()
+	if !session.LastPolled.IsZero() && now.Sub(session.LastPolled) < 5*time.Second {
+		// Return slow_down without updating LastPolled (RFC specification usually requires returning slow_down and letting the client adaptively increase the delay)
+		return nil, ErrSlowDown
+	}
+
+	// Update the last polled time
+	session.LastPolled = now
+	if err := storage.DeviceCodeUpdate(ctx, req.DeviceCode, session); err != nil {
+		log.Error().Err(err).Msg("Failed to update device code session last polled time")
+		// Do not block the flow if update fails, as the core rate limiting will still work partially across distributed instances
+		// but ideally it shouldn't fail
+	}
+
 	// 2. 检查过期
-	if time.Now().After(session.ExpiresAt) {
+	if now.After(session.ExpiresAt) {
 		// 过期了也可以顺手清理一下
 		_ = storage.DeviceCodeDelete(ctx, req.DeviceCode)
 		return nil, ErrExpiredToken

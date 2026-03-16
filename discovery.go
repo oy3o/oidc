@@ -199,8 +199,8 @@ func (r *RemoteKeySet) GetKey(ctx context.Context, kid string) (crypto.PublicKey
 	if ok {
 		// 如果过期，触发后台刷新但仍返回旧值（Stale-While-Revalidate）
 		if time.Now().After(expiry) {
-			// 异步刷新，不阻塞
-			go r.triggerRefresh(ctx)
+			// 异步刷新，不阻塞，并使用 WithoutCancel 防止取消影响刷新
+			go r.triggerRefresh(context.WithoutCancel(ctx))
 		}
 		return key, nil
 	}

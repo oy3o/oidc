@@ -105,7 +105,7 @@ func EndSession(ctx context.Context, storage Storage, server interface {
 
 	// 5. 触发 Back-Channel Logout (异步)
 	if len(sessionsToLogout) > 0 {
-		go broadcastBackchannelLogout(ctx, storage, server, sessionsToLogout)
+		go broadcastBackchannelLogout(context.WithoutCancel(ctx), storage, server, sessionsToLogout)
 	}
 
 	// 6. 构建返回 URL

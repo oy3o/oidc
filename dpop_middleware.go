@@ -2,10 +2,11 @@ package oidc
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
+
+	"github.com/rs/zerolog/log"
 )
 
 // DPoPContext 是用于在 context 中传递 DPoP 验证结果的 key
@@ -49,8 +50,8 @@ func DPoPMiddleware(cache ReplayCache, required bool) func(http.Handler) http.Ha
 			jkt, err := VerifyDPoPProof(ctx, r, w, cache, r.Method, httpURI)
 			if err != nil {
 				// DPoP 验证失败
-				errMsg := fmt.Sprintf(`{"error":"invalid_dpop_proof","error_description":"%s"}`, err.Error())
-				http.Error(w, errMsg, http.StatusUnauthorized)
+				log.Error().Err(err).Msg("DPoP proof verification failed")
+				http.Error(w, `{"error":"invalid_dpop_proof","error_description":"Invalid DPoP proof"}`, http.StatusUnauthorized)
 				return
 			}
 

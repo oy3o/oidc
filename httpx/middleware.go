@@ -8,6 +8,7 @@ import (
 
 	"github.com/oy3o/httpx"
 	"github.com/oy3o/oidc"
+	"github.com/rs/zerolog/log"
 )
 
 // AuthenticationMiddleware 返回一个支持多路认证（Bearer/DPoP/Cookie）的中间件。
@@ -87,9 +88,12 @@ func AuthenticationMiddleware(s *oidc.Server, customStrategies ...httpx.AuthStra
 				// 写入符合 RFC 6750 的错误响应
 				// 设置 WWW-Authenticate 头
 				// 格式: Bearer error="invalid_token", error_description="..."
-				w.Header().Set("WWW-Authenticate", fmt.Sprintf(`Bearer error="%s", error_description="%s"`, "invalid_token", httpx.GetAuthError(r.Context()).Error()))
+				authErr := httpx.GetAuthError(r.Context())
+				log.Error().Err(authErr).Msg("Authentication failed")
+
+				w.Header().Set("WWW-Authenticate", fmt.Sprintf(`Bearer error="%s", error_description="%s"`, "invalid_token", "invalid or expired token"))
 				// 这里复用 oidc.Error 格式返回 JSON body，方便前端调试，但 Head 也是必须的
-				Error(w, r, oidc.NewError("invalid_token", httpx.GetAuthError(r.Context()).Error(), http.StatusUnauthorized))
+				Error(w, r, oidc.NewError("invalid_token", "invalid or expired token", http.StatusUnauthorized))
 			})(next)).ServeHTTP(w, r)
 		})
 	}

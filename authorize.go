@@ -100,8 +100,8 @@ func RequestAuthorize(ctx context.Context, storage Storage, req *AuthorizeReques
 
 	// 4. 验证 Grant Type 支持
 	// 虽然这是授权端点，但客户端必须被允许使用 authorization_code 流程
-	if !slices.Contains(client.GetGrantTypes(), "authorization_code") {
-		return nil, fmt.Errorf("%w: client not authorized for authorization_code flow", ErrUnauthorizedClient)
+	if err := ensureClientAuthorized(client, "authorization_code"); err != nil {
+		return nil, err
 	}
 
 	// 5. 验证 Scope
@@ -265,4 +265,12 @@ func isValidURI(client RegisteredClient, redirectURI string) bool {
 		}
 	}
 	return false
+}
+
+// ensureClientAuthorized 验证客户端是否允许指定的授权类型
+func ensureClientAuthorized(client RegisteredClient, grantType string) error {
+	if !slices.Contains(client.GetGrantTypes(), grantType) {
+		return fmt.Errorf("%w: client not authorized for %s flow", ErrUnauthorizedClient, grantType)
+	}
+	return nil
 }

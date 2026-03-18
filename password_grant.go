@@ -5,7 +5,6 @@ package oidc
 import (
 	"context"
 	"fmt"
-	"slices"
 	"strings"
 	"time"
 )
@@ -26,8 +25,8 @@ func PasswordGrant(ctx context.Context, storage Storage, hasher Hasher, issuer *
 
 	// 2. 验证 Grant Type 支持
 	// 虽然这是测试端点，但客户端必须被允许使用 password 流程
-	if !slices.Contains(client.GetGrantTypes(), "password") {
-		return nil, fmt.Errorf("%w: client not authorized for password flow", ErrUnauthorizedClient)
+	if err := ensureClientAuthorized(client, "password"); err != nil {
+		return nil, err
 	}
 
 	// 3. 认证用户

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 	"strings"
 	"time"
 
@@ -128,8 +127,8 @@ func ExchangeCode(ctx context.Context, storage Storage, hasher Hasher, issuer *I
 	}
 	// 验证 Grant Type 支持
 	// 虽然这是授权端点，但客户端必须被允许使用 authorization_code 流程
-	if !slices.Contains(client.GetGrantTypes(), "authorization_code") {
-		return nil, fmt.Errorf("%w: client not authorized for authorization_code flow", ErrUnauthorizedClient)
+	if err := ensureClientAuthorized(client, "authorization_code"); err != nil {
+		return nil, err
 	}
 
 	// 5. 准备 Issuer 请求
@@ -241,8 +240,8 @@ func RefreshTokens(ctx context.Context, storage Storage, secretManager *SecretMa
 
 	// 5. 验证 Grant Type 支持
 	// 虽然这是授权端点，但客户端必须被允许使用 refresh_token
-	if !slices.Contains(client.GetGrantTypes(), "refresh_token") {
-		return nil, fmt.Errorf("%w: client not authorized for refresh_token flow", ErrUnauthorizedClient)
+	if err := ensureClientAuthorized(client, "refresh_token"); err != nil {
+		return nil, err
 	}
 
 	// 6. 生成新 Token (Issuer 逻辑)
@@ -314,8 +313,8 @@ func ExchangeClientCredentials(ctx context.Context, storage ClientStorage, hashe
 	}
 
 	// 2. 验证 Grant Type 支持
-	if !slices.Contains(client.GetGrantTypes(), "client_credentials") {
-		return nil, fmt.Errorf("%w: client not authorized for client_credentials flow", ErrUnauthorizedClient)
+	if err := ensureClientAuthorized(client, "client_credentials"); err != nil {
+		return nil, err
 	}
 
 	// 3. 确定 Scope

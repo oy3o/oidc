@@ -47,16 +47,8 @@ func AuthenticateClient(ctx context.Context, storage ClientStorage, clientIDStr,
 		return nil, fmt.Errorf("%w: client_id is required", ErrInvalidRequest)
 	}
 
-	clientID, err := ParseUUID(clientIDStr)
+	client, err := GetAndVerifyClient(ctx, storage, clientIDStr)
 	if err != nil {
-		return nil, fmt.Errorf("%w: invalid client_id", ErrInvalidRequest)
-	}
-
-	client, err := storage.ClientGetByID(ctx, clientID)
-	if err != nil {
-		if errors.Is(err, ErrClientNotFound) {
-			return nil, fmt.Errorf("%w: invalid client", ErrInvalidClient)
-		}
 		return nil, err
 	}
 

@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/golang-jwt/jwt/v5"
 )
 
 // PasswordGrant 处理密码授权流程，仅用于负载测试等情景。
@@ -67,7 +69,7 @@ func PasswordGrant(ctx context.Context, storage Storage, hasher Hasher, issuer *
 		UserID:   userID,
 		Scopes:   finalScope,
 		// AuthTime 设置为当前时间，因为用户刚刚完成认证
-		AuthTime: time.Now(),
+		AuthTime: jwt.NewNumericDate(time.Now()),
 	}
 
 	// 6. 判断是否需要签发 ID Token

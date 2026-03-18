@@ -258,17 +258,7 @@ func (s *KeyRotationScheduler) cleanupLoop(ctx context.Context) {
 	for {
 		select {
 		case <-ticker.C:
-			now := time.Now()
-			s.pendingDeletes.Range(func(kid string, deleteAt time.Time) bool {
-				if now.After(deleteAt) {
-					// 到期，删除密钥
-					if err := s.manager.RemoveKey(ctx, kid); err != nil {
-						log.Error().Err(err).Str("kid", kid).Msg("Failed to remove expired key")
-					}
-					s.pendingDeletes.Delete(kid)
-				}
-				return true
-			})
+			s.performCleanup(ctx)
 		case <-s.stopChan:
 			return
 		case <-ctx.Done():
@@ -283,6 +273,26 @@ func (s *KeyRotationScheduler) GetCurrentKeyID() string {
 		return kid.(string)
 	}
 	return ""
+}
+
+// performCleanup 执行一次待删除密钥的清理检查
+func (s *KeyRotationScheduler) performCleanup(ctx context.Context) {
+	now := time.Now()
+	s.pendingDeletes.Range(func(kid string, deleteAt time.Time) bool {
+		return s.processPendingDelete(ctx, now, kid, deleteAt)
+	})
+}
+
+// processPendingDelete 处理单个待删除密钥，如果到期则删除
+func (s *KeyRotationScheduler) processPendingDelete(ctx context.Context, now time.Time, kid string, deleteAt time.Time) bool {
+	if now.After(deleteAt) {
+		// 到期，删除密钥
+		if err := s.manager.RemoveKey(ctx, kid); err != nil {
+			log.Error().Err(err).Str("kid", kid).Msg("Failed to remove expired key")
+		}
+		s.pendingDeletes.Delete(kid)
+	}
+	return true
 }
 
 // GetPendingDeletes 获取待删除密钥列表（用于监控）

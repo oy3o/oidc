@@ -63,15 +63,20 @@ func (s *PgxStorage) UserCreate(ctx context.Context, user *User, credentials []*
 		}
 
 		// 3. Insert Credentials
-		for _, cred := range credentials {
-			cred.UserID = user.ID // 关联 ID
-			credQuery, credArgs, err := psql.Insert("credentials").
-				Columns("user_id", "type", "identifier", "secret").
-				Values(cred.UserID, cred.Type, cred.Identifier, cred.Secret).
-				ToSql()
+		if len(credentials) > 0 {
+			builder := psql.Insert("credentials").
+				Columns("user_id", "type", "identifier", "secret")
+
+			for _, cred := range credentials {
+				cred.UserID = user.ID // 关联 ID
+				builder = builder.Values(cred.UserID, cred.Type, cred.Identifier, cred.Secret)
+			}
+
+			credQuery, credArgs, err := builder.ToSql()
 			if err != nil {
 				return err
 			}
+
 			if _, err := executor.Exec(ctx, credQuery, credArgs...); err != nil {
 				if isUniqueViolation(err) {
 					return ErrIdentifierExists

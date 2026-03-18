@@ -41,13 +41,9 @@ type DeviceAuthorizationResponse struct {
 // DeviceAuthorization 处理设备授权请求
 func DeviceAuthorization(ctx context.Context, storage Storage, issuer string, req *DeviceAuthorizationRequest) (*DeviceAuthorizationResponse, error) {
 	// 1. 验证 Client
-	clientIDRaw, err := ParseUUID(req.ClientID)
+	client, err := GetAndVerifyClient(ctx, storage, req.ClientID)
 	if err != nil {
-		return nil, fmt.Errorf("%w: invalid client_id", ErrInvalidRequest)
-	}
-	client, err := storage.ClientGetByID(ctx, clientIDRaw)
-	if err != nil {
-		return nil, fmt.Errorf("%w: invalid client", ErrInvalidClient)
+		return nil, err
 	}
 
 	// 2. 生成 Device Code 和 User Code

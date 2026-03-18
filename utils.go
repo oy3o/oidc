@@ -1,8 +1,10 @@
 package oidc
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 
@@ -34,4 +36,22 @@ func ParseUUID(s string) (BinaryUUID, error) {
 		return BinaryUUID{}, err
 	}
 	return BinaryUUID(id), nil
+}
+
+// GetAndVerifyClient 解析 clientID 并从存储中获取验证客户端
+func GetAndVerifyClient(ctx context.Context, storage ClientStorage, clientIDStr string) (RegisteredClient, error) {
+	clientID, err := ParseUUID(clientIDStr)
+	if err != nil {
+		return nil, fmt.Errorf("%w: invalid client_id", ErrInvalidRequest)
+	}
+
+	client, err := storage.ClientGetByID(ctx, clientID)
+	if err != nil {
+		if errors.Is(err, ErrClientNotFound) {
+			return nil, fmt.Errorf("%w: invalid client", ErrInvalidClient)
+		}
+		return nil, err
+	}
+
+	return client, nil
 }

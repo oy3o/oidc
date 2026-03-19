@@ -2,6 +2,7 @@ package persist
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/Masterminds/squirrel"
@@ -147,7 +148,12 @@ func (s *PgxStorage) UserList(ctx context.Context, limit, offset int, query stri
 	countBuilder := psql.Select("COUNT(*)").From("profiles")
 
 	if query != "" {
-		likePattern := "%" + query + "%"
+		// Escape wildcard characters to prevent SQL injection & DoS
+		escapedQuery := strings.ReplaceAll(query, "\\", "\\\\")
+		escapedQuery = strings.ReplaceAll(escapedQuery, "%", "\\%")
+		escapedQuery = strings.ReplaceAll(escapedQuery, "_", "\\_")
+
+		likePattern := "%" + escapedQuery + "%"
 		filter := squirrel.Or{
 			squirrel.ILike{"name": likePattern},
 			squirrel.ILike{"email": likePattern},

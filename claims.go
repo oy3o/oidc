@@ -174,6 +174,11 @@ func IssueStructuredRefreshToken(ctx context.Context, sm *SecretManager, userID 
 
 // 验证 Token (在查库之前)
 func ValidateStructuredRefreshToken(ctx context.Context, sm *SecretManager, token RefreshToken) error {
+	// 增加输入长度限制，防止超长 Token 导致的 CPU/内存耗尽 (DoS)
+	if len(token) > 4096 {
+		return ErrTokenFormatInvalid
+	}
+
 	parts := strings.Split(string(token), ".")
 	if len(parts) != 4 {
 		return ErrTokenFormatInvalid
@@ -181,7 +186,10 @@ func ValidateStructuredRefreshToken(ctx context.Context, sm *SecretManager, toke
 
 	// 1. 验证签名 (CPU 操作，极快)
 	payload := parts[0] + "." + parts[1] + "." + parts[2]
-	providedSig, _ := base64.RawURLEncoding.DecodeString(parts[3])
+	providedSig, err := base64.RawURLEncoding.DecodeString(parts[3])
+	if err != nil {
+		return ErrTokenFormatInvalid
+	}
 
 	key, err := sm.GetVerificationKey(ctx, parts[0])
 	if err != nil {
@@ -197,7 +205,10 @@ func ValidateStructuredRefreshToken(ctx context.Context, sm *SecretManager, toke
 	}
 
 	// 2. 验证过期 (CPU 操作)
-	metaJson, _ := base64.RawURLEncoding.DecodeString(parts[1])
+	metaJson, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return ErrTokenFormatInvalid
+	}
 	var meta struct {
 		Exp int64 `json:"e"`
 	}

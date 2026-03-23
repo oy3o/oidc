@@ -155,7 +155,7 @@ func NewRemoteKeySet(ctx context.Context, jwksURI string, httpClient *http.Clien
 		ctx:           ctx,
 		cacheDuration: 5 * time.Minute, // 默认缓存 5 分钟
 		cachedKeys:    xsync.NewMap[string, crypto.PublicKey](),
-		requestGroup:  singleflight.NewGroup[string, *struct{}](),
+		requestGroup:  new(singleflight.Group[string, *struct{}]),
 		stopChan:      make(chan struct{}),
 	}
 

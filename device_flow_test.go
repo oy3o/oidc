@@ -216,7 +216,7 @@ func TestDeviceTokenExchange_Expired(t *testing.T) {
 	}
 
 	_, err := server.Exchange(ctx, req)
-	assert.ErrorIs(t, err, oidc.ErrInvalidGrant)
+	assert.ErrorIs(t, err, oidc.ErrExpiredToken)
 }
 
 func TestDeviceTokenExchange_InvalidCode(t *testing.T) {

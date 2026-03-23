@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/alicebob/miniredis/v2"
 	"github.com/google/uuid"
 	"github.com/oy3o/oidc"
 	"github.com/stretchr/testify/assert"
@@ -13,7 +12,7 @@ import (
 )
 
 // setupExchangeTest 初始化测试环境
-func setupExchangeTest(t *testing.T) (*oidc.Server, *oidc.TieredStorage, oidc.RegisteredClient, *miniredis.Miniredis) {
+func setupExchangeTest(t *testing.T) (*oidc.Server, *oidc.TieredStorage, oidc.RegisteredClient, *MockStorage) {
 	storage, s := NewTestStorage(t)
 	hasher := &mockHasher{} // 复用 authorize_test.go 中的 mockHasher，或者在此重新定义
 

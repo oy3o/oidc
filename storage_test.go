@@ -4,52 +4,23 @@ import (
 	"context"
 	"testing"
 
-	"github.com/alicebob/miniredis/v2"
 	"github.com/oy3o/oidc"
-	"github.com/oy3o/oidc/cache"
-	"github.com/oy3o/oidc/persist"
-	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
-type clientFactory struct{}
-
-func (f *clientFactory) New() oidc.RegisteredClient {
-	return &oidc.ClientMetadata{}
+func NewTestCache(t *testing.T) (oidc.Cache, *MockStorage) {
+	s := NewMockStorage()
+	return s, s
 }
 
-func NewTestCache(t *testing.T) (oidc.Cache, *miniredis.Miniredis) {
-	s := miniredis.RunT(t)
-
-	rdb := redis.NewClient(&redis.Options{
-		Addr: s.Addr(),
-	})
-	return cache.NewRedis(rdb, &clientFactory{}), s
-}
-
-// NewTestDB 获取全局的 Pool，并清空数据
 func NewTestDB(t *testing.T) oidc.Persistence {
-	if TestPool == nil {
-		t.Fatal("Global test pool is not initialized. TestMain failed to run?")
-	}
-
-	// 每次测试前清空表，保证测试隔离性 (TRUNCATE 速度极快)
-	// CASCADE 会自动处理外键依赖
-	_, err := TestPool.Exec(context.Background(), `
-		TRUNCATE users, profiles, credentials, oidc_clients, 
-		oidc_auth_codes, oidc_device_codes, oidc_refresh_tokens, jwks 
-		CASCADE
-	`)
-	require.NoError(t, err, "failed to clean database")
-
-	hasher := &mockHasher{}
-	return persist.NewPgx(TestPool, hasher)
+	return NewMockStorage()
 }
 
-func NewTestStorage(t *testing.T) (*oidc.TieredStorage, *miniredis.Miniredis) {
-	rdb, s := NewTestCache(t)
-	return oidc.NewTieredStorage(NewTestDB(t), rdb), s
+func NewTestStorage(t *testing.T) (*oidc.TieredStorage, *MockStorage) {
+	c, mockC := NewTestCache(t)
+	db := NewTestDB(t)
+	return oidc.NewTieredStorage(db, c), mockC
 }
 
 func TestTieredStorage_ClientGetByID(t *testing.T) {
@@ -78,17 +49,9 @@ func TestTieredStorage_ClientGetByID(t *testing.T) {
 
 	// Verify Cache is populated
 	cachedClient, err := cache.ClientGetByID(ctx, clientID)
-	// Note: MockStorage.ClientGetByID might return ErrClientNotFound if ClientCache didn't work as expected
-	// (we implemented ClientCache in MockStorage to store in map)
 	assert.NoError(t, err)
 	assert.NotNil(t, cachedClient)
 	assert.Equal(t, clientID, cachedClient.GetID())
-
-	// 3. Test: ClientGetByID from Cache
-	// Modify DB to ensure we are reading from Cache
-	// (In a real mock, we could clear DB, but here we can just modify the cached object if it's a pointer,
-	// but MockStorage stores pointers. Let's modify the cached object directly via cache interface if possible,
-	// or modify DB and expect old value if cache is hit.)
 
 	// Let's delete from DB and see if we can still get it (Cache Hit)
 	err = db.ClientDeleteByID(ctx, clientID)
@@ -136,7 +99,7 @@ func TestTieredStorage_ClientDeleteByID(t *testing.T) {
 	clientMeta := &oidc.ClientMetadata{ID: clientID}
 	storage.ClientCreate(ctx, clientMeta)
 
-	// JWKDelete
+	// Delete
 	err := storage.ClientDeleteByID(ctx, clientID)
 	assert.NoError(t, err)
 
@@ -146,7 +109,7 @@ func TestTieredStorage_ClientDeleteByID(t *testing.T) {
 
 	// Verify Cache deleted
 	_, err = cache.ClientGetByID(ctx, clientID)
-	assert.Error(t, err) // Should be not found
+	assert.Error(t, err)
 }
 
 func TestTieredStorage_ClientUpdate(t *testing.T) {

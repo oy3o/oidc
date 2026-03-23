@@ -341,7 +341,7 @@ func (s *Server) Discovery() *Discovery {
 // ---------------------------------------------------------------------------
 
 // SingleFlight 合并并发请求, 防止同一个 Token 在极短时间内发起数万次攻击
-var verifierGroup = singleflight.NewGroup[string, *AccessTokenClaims]()
+var verifierGroup = singleflight.Group[string, *AccessTokenClaims]{}
 
 // VerifyAccessToken 用于验证 Bearer Token 的有效性。
 // 此实现不校验 Audience，因为 UserInfo 端点信任本 Issuer 签发的任何包含 openid scope 的 Token。
@@ -387,7 +387,7 @@ func (s *Server) VerifyAccessToken(ctx context.Context, tokenStr string) (*Acces
 }
 
 // SingleFlight 合并并发请求, 防止同一个 Token 在极短时间内发起数万次攻击
-var validateGroup = singleflight.NewGroup[string, *AccessTokenClaims]()
+var validateGroup = singleflight.Group[string, *AccessTokenClaims]{}
 
 // ParseAccessToken 解析并验证 Token 签名和 Issuer，但不检查撤销状态。
 func (s *Server) ParseAccessToken(ctx context.Context, tokenStr string) (*AccessTokenClaims, error) {

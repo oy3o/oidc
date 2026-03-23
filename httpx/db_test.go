@@ -2,171 +2,251 @@ package httpx_test
 
 import (
 	"context"
-	"fmt"
-	"os"
+	"errors"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/alicebob/miniredis/v2"
-	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/redis/go-redis/v9"
-
 	"github.com/google/uuid"
+	"github.com/lestrrat-go/jwx/v2/jwk"
 	"github.com/oy3o/o11y"
 	"github.com/oy3o/oidc"
-	"github.com/oy3o/oidc/cache"
-	"github.com/oy3o/oidc/persist"
 	"github.com/stretchr/testify/require"
-	"github.com/testcontainers/testcontainers-go/modules/postgres"
 )
 
-type clientFactory struct{}
-
-func (f *clientFactory) New() oidc.RegisteredClient {
-	return &oidc.ClientMetadata{}
-}
-
-// 全局变量，整个测试套件生命周期内只初始化一次
-var (
-	TestPool      *pgxpool.Pool
-	TestContainer *postgres.PostgresContainer
-	PoolOnce      sync.Once
-)
-
-// TestMain 控制测试的主入口，负责全局容器的启动和销毁
 func TestMain(m *testing.M) {
-	ctx := context.Background()
 	cfg := o11y.Config{
 		Enabled:     true,
 		Service:     "oidc-httpx-test",
 		Environment: "test",
 		Log: o11y.LogConfig{
-			Level:         "fatal", // 减少噪音
+			Level:         "fatal",
 			EnableConsole: false,
 		},
 		Trace:  o11y.TraceConfig{Enabled: false, Exporter: "none"},
 		Metric: o11y.MetricConfig{Enabled: false},
 	}
 	shutdown, _ := o11y.Init(cfg)
+	defer shutdown(context.Background())
 
-	// 1. 启动容器 (只启动一次)
-	PoolOnce.Do(func() {
-		container, err := postgres.Run(
-			ctx,
-			"docker.io/postgres:18-trixie",
-			postgres.WithInitScripts("../persist/init.sql"),
-			postgres.BasicWaitStrategies(),
-		)
-		if err != nil {
-			fmt.Printf("failed to start container: %v\n", err)
-			os.Exit(1)
-		}
-		TestContainer = container
-
-		// 2. 获取连接字符串
-		connStr, err := container.ConnectionString(ctx, "sslmode=disable")
-		if err != nil {
-			fmt.Printf("failed to get connection string: %v\n", err)
-			_ = container.Terminate(ctx)
-			os.Exit(1)
-		}
-
-		// 3. 配置连接池
-		dbConfig, err := pgxpool.ParseConfig(connStr)
-		if err != nil {
-			fmt.Printf("failed to parse config: %v\n", err)
-			_ = container.Terminate(ctx)
-			os.Exit(1)
-		}
-		dbConfig.MinConns = 1
-		dbConfig.MaxConns = 10 // 稍微调大一点，避免测试并发不够
-
-		pool, err := pgxpool.NewWithConfig(ctx, dbConfig)
-		if err != nil {
-			fmt.Printf("failed to create pool: %v\n", err)
-			_ = container.Terminate(ctx)
-			os.Exit(1)
-		}
-		TestPool = pool
-
-		// 等待数据库就绪
-		if err := waitForDB(ctx, pool); err != nil {
-			fmt.Printf("database not ready: %v\n", err)
-			_ = container.Terminate(ctx)
-			os.Exit(1)
-		}
-	})
-
-	// 4. 运行所有测试
-	code := m.Run()
-
-	// 5. 清理资源
-	TestPool.Close()
-	if err := TestContainer.Terminate(ctx); err != nil {
-		fmt.Printf("failed to terminate container: %v\n", err)
-	}
-
-	shutdown(context.Background())
-	os.Exit(code)
+	m.Run()
 }
 
-// waitForDB 简单的重试逻辑
-func waitForDB(ctx context.Context, pool *pgxpool.Pool) error {
-	ticker := time.NewTicker(100 * time.Millisecond)
-	defer ticker.Stop()
-	timeout := time.After(5 * time.Second)
+// mockHasher 简单哈希实现
+type mockHasher struct{}
 
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-timeout:
-			return context.DeadlineExceeded
-		case <-ticker.C:
-			if err := pool.Ping(ctx); err == nil {
-				return nil
-			}
-		}
+func (m *mockHasher) Hash(ctx context.Context, password []byte) ([]byte, error) {
+	return []byte("hashed_" + string(password)), nil
+}
+
+func (m *mockHasher) Compare(ctx context.Context, hashedPassword []byte, password []byte) error {
+	if string(hashedPassword) == "hashed_"+string(password) {
+		return nil
+	}
+	return oidc.ErrInvalidGrant
+}
+
+// mockStorage 是一个为了 HTTPX 测试准备的纯内存实现，不用起容器。
+type mockStorage struct {
+	oidc.Storage // 注意：未实现的方法会直接 panic
+	
+	mu             sync.Mutex
+	clients        map[oidc.BinaryUUID]*oidc.ClientMetadata
+	jwks           map[string]jwk.Key
+	signingKeyID   string
+	users          map[string]*oidc.UserInfo
+	authCodes      map[string]*oidc.AuthCodeSession
+	refreshTokens  map[string]*oidc.RefreshTokenSession
+	revokedTokens  map[string]time.Time
+	replayCache    map[string]time.Time
+	parSessions    map[string]*oidc.AuthorizeRequest
+	deviceSessions map[string]*oidc.DeviceCodeSession
+}
+
+func newMockStorage() *mockStorage {
+	return &mockStorage{
+		clients:        make(map[oidc.BinaryUUID]*oidc.ClientMetadata),
+		jwks:           make(map[string]jwk.Key),
+		users:          make(map[string]*oidc.UserInfo),
+		authCodes:      make(map[string]*oidc.AuthCodeSession),
+		refreshTokens:  make(map[string]*oidc.RefreshTokenSession),
+		revokedTokens:  make(map[string]time.Time),
+		replayCache:    make(map[string]time.Time),
+		parSessions:    make(map[string]*oidc.AuthorizeRequest),
+		deviceSessions: make(map[string]*oidc.DeviceCodeSession),
 	}
 }
 
-func NewTestCache(t *testing.T) (oidc.Cache, *miniredis.Miniredis) {
-	s := miniredis.RunT(t)
-
-	rdb := redis.NewClient(&redis.Options{
-		Addr: s.Addr(),
-	})
-	return cache.NewRedis(rdb, &clientFactory{}), s
+func (m *mockStorage) ClientCreate(ctx context.Context, metadata *oidc.ClientMetadata) (oidc.RegisteredClient, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.clients[metadata.ID] = metadata
+	return metadata, nil
 }
 
-// NewTestDB 获取全局的 Pool，并清空数据
-func NewTestDB(t *testing.T) oidc.Persistence {
-	if TestPool == nil {
-		t.Fatal("Global test pool is not initialized. TestMain failed to run?")
+func (m *mockStorage) ClientGetByID(ctx context.Context, clientID oidc.BinaryUUID) (oidc.RegisteredClient, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if c, ok := m.clients[clientID]; ok {
+		return c, nil
 	}
-
-	// 每次测试前清空表，保证测试隔离性 (TRUNCATE 速度极快)
-	// CASCADE 会自动处理外键依赖
-	_, err := TestPool.Exec(context.Background(), `
-		TRUNCATE users, profiles, credentials, oidc_clients, 
-		oidc_auth_codes, oidc_device_codes, oidc_refresh_tokens, jwks 
-		CASCADE
-	`)
-	require.NoError(t, err, "failed to clean database")
-
-	hasher := &mockHasher{}
-	return persist.NewPgx(TestPool, hasher)
+	return nil, oidc.ErrClientNotFound
 }
 
-func NewTestStorage(t *testing.T) (*oidc.TieredStorage, *miniredis.Miniredis) {
-	rdb, s := NewTestCache(t)
-	return oidc.NewTieredStorage(NewTestDB(t), rdb), s
+func (m *mockStorage) JWKSave(ctx context.Context, key jwk.Key) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.jwks[key.KeyID()] = key
+	return nil
+}
+
+func (m *mockStorage) JWKMarkSigning(ctx context.Context, kid string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.signingKeyID = kid
+	return nil
+}
+
+func (m *mockStorage) JWKGetSigning(ctx context.Context) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.signingKeyID == "" {
+		return "", errors.New("no signing key marked")
+	}
+	return m.signingKeyID, nil
+}
+
+func (m *mockStorage) JWKGet(ctx context.Context, kid string) (jwk.Key, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if k, ok := m.jwks[kid]; ok {
+		return k, nil
+	}
+	return nil, errors.New("key not found")
+}
+
+func (m *mockStorage) JWKList(ctx context.Context) ([]jwk.Key, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var keys []jwk.Key
+	for _, k := range m.jwks {
+		keys = append(keys, k)
+	}
+	return keys, nil
+}
+
+func (m *mockStorage) UserCreateInfo(ctx context.Context, userInfo *oidc.UserInfo) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.users[userInfo.Subject] = userInfo
+	return nil
+}
+
+func (m *mockStorage) UserGetInfoByID(ctx context.Context, userID oidc.BinaryUUID, scopes []string) (*oidc.UserInfo, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if u, ok := m.users[userID.String()]; ok {
+		return u, nil
+	}
+	return nil, errors.New("user not found")
+}
+
+func (m *mockStorage) AuthCodeSave(ctx context.Context, session *oidc.AuthCodeSession) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.authCodes[session.Code] = session
+	return nil
+}
+
+func (m *mockStorage) AuthCodeConsume(ctx context.Context, code string) (*oidc.AuthCodeSession, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if session, ok := m.authCodes[code]; ok {
+		delete(m.authCodes, code)
+		return session, nil
+	}
+	return nil, oidc.ErrCodeNotFound
+}
+
+func (m *mockStorage) RefreshTokenCreate(ctx context.Context, session *oidc.RefreshTokenSession) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.refreshTokens[string(session.ID)] = session
+	return nil
+}
+
+func (m *mockStorage) RefreshTokenGet(ctx context.Context, tokenID oidc.Hash256) (*oidc.RefreshTokenSession, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if s, ok := m.refreshTokens[string(tokenID)]; ok {
+		return s, nil
+	}
+	return nil, oidc.ErrTokenNotFound
+}
+
+func (m *mockStorage) RefreshTokenRotate(ctx context.Context, oldTokenID oidc.Hash256, newSession *oidc.RefreshTokenSession, gracePeriod time.Duration) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.refreshTokens, string(oldTokenID))
+	m.refreshTokens[string(newSession.ID)] = newSession
+	return nil
+}
+
+func (m *mockStorage) AccessTokenIsRevoked(ctx context.Context, jti string) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	exp, ok := m.revokedTokens[jti]
+	if !ok || time.Now().After(exp) {
+		return false, nil
+	}
+	return true, nil
+}
+
+func (m *mockStorage) AccessTokenRevoke(ctx context.Context, jti string, expiration time.Time) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.revokedTokens[jti] = expiration
+	return nil
+}
+
+func (m *mockStorage) CheckAndStore(ctx context.Context, jti string, ttl time.Duration) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	exp, ok := m.replayCache[jti]
+	if ok && time.Now().Before(exp) {
+		return true, nil
+	}
+	m.replayCache[jti] = time.Now().Add(ttl)
+	return false, nil
+}
+
+func (m *mockStorage) PARSessionSave(ctx context.Context, requestURI string, req *oidc.AuthorizeRequest, ttl time.Duration) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.parSessions[requestURI] = req
+	return nil
+}
+
+func (m *mockStorage) PARSessionConsume(ctx context.Context, requestURI string) (*oidc.AuthorizeRequest, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if s, ok := m.parSessions[requestURI]; ok {
+		delete(m.parSessions, requestURI)
+		return s, nil
+	}
+	return nil, errors.New("PAR session not found")
+}
+
+func (m *mockStorage) DeviceCodeSave(ctx context.Context, session *oidc.DeviceCodeSession) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.deviceSessions[session.DeviceCode] = session
+	return nil
 }
 
 // setupServer 创建一个完全配置的 OIDC Server 用于测试
 func setupServer(t *testing.T) (*oidc.Server, oidc.Storage, oidc.RegisteredClient) {
-	storage, _ := NewTestStorage(t)
+	storage := newMockStorage()
 	hasher := &mockHasher{}
 
 	// 1. 初始化 Secret Manager
@@ -193,30 +273,17 @@ func setupServer(t *testing.T) (*oidc.Server, oidc.Storage, oidc.RegisteredClien
 	clientID := oidc.BinaryUUID(uuid.New())
 	clientMeta := &oidc.ClientMetadata{
 		ID:                      clientID,
-		RedirectURIs:            []string{"https://client.com/cb"},
-		GrantTypes:              []string{"authorization_code", "client_credentials"},
+		RedirectURIs:            oidc.StringSlice{"https://client.com/cb"},
+		GrantTypes:              oidc.StringSlice{"authorization_code", "client_credentials"},
 		Scope:                   "openid profile",
 		Name:                    "HTTPX Test Client",
 		IsConfidentialClient:    true,
 		Secret:                  "hashed_test_secret",
 		TokenEndpointAuthMethod: "client_secret_basic",
 	}
+
 	client, err := storage.ClientCreate(context.Background(), clientMeta)
 	require.NoError(t, err)
 
 	return server, storage, client
-}
-
-// mockHasher 简单哈希实现
-type mockHasher struct{}
-
-func (m *mockHasher) Hash(ctx context.Context, password []byte) ([]byte, error) {
-	return []byte("hashed_" + string(password)), nil
-}
-
-func (m *mockHasher) Compare(ctx context.Context, hashedPassword []byte, password []byte) error {
-	if string(hashedPassword) == "hashed_"+string(password) {
-		return nil
-	}
-	return oidc.ErrInvalidGrant
 }

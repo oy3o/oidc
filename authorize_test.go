@@ -13,20 +13,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// mockHasher 用于测试的简单哈希器
-type mockHasher struct{}
-
-func (m *mockHasher) Hash(ctx context.Context, password []byte) ([]byte, error) {
-	return password, nil // 测试时不进行实际哈希
-}
-
-func (m *mockHasher) Compare(ctx context.Context, hashedPassword []byte, password []byte) error {
-	if string(hashedPassword) != string(password) {
-		return oidc.ErrInvalidGrant
-	}
-	return nil
-}
-
 // setupAuthorizeTest 初始化 Server 和 Storage，并注册一个默认客户端
 func setupAuthorizeTest(t *testing.T) (*oidc.Server, oidc.Storage, oidc.RegisteredClient) {
 	storage, _ := NewTestStorage(t)

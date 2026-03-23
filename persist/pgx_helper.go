@@ -70,7 +70,7 @@ var (
 			return EmailRegex.MatchString(s)
 		},
 		IdentPhone: func(s string) bool {
-			if num, err := phonenumbers.Parse(s, ""); err != nil && phonenumbers.IsValidNumber(num) {
+			if num, err := phonenumbers.Parse(s, ""); err == nil && phonenumbers.IsValidNumber(num) {
 				return true
 			}
 			return false

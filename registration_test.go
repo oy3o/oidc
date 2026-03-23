@@ -2,6 +2,7 @@ package oidc_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/google/uuid"
@@ -24,6 +25,10 @@ func (h *regTestHasher) Compare(ctx context.Context, hashedPassword []byte, pass
 		return nil
 	}
 	return oidc.ErrInvalidGrant
+}
+
+func (h *regTestHasher) DummyCompare(ctx context.Context, password []byte) error {
+	return errors.New("dummy compare failed")
 }
 
 func TestRegisterClient_Confidential(t *testing.T) {

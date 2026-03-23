@@ -23,6 +23,10 @@ func (m *mockHasher) Compare(ctx context.Context, hashedPassword []byte, passwor
 	return nil
 }
 
+func (m *mockHasher) DummyCompare(ctx context.Context, password []byte) error {
+	return errors.New("dummy compare failed")
+}
+
 type parEntry struct {
 	req *oidc.AuthorizeRequest
 	exp time.Time

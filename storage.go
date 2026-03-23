@@ -50,6 +50,118 @@ func NewTieredStorage(db Persistence, cache Cache, opts ...TieredStorageOption) 
 var _ Storage = (*TieredStorage)(nil)
 
 // ---------------------------------------------------------------------------
+// Other Storage Methods
+// ---------------------------------------------------------------------------
+
+func (s *TieredStorage) AuthenticateByPassword(ctx context.Context, username, password string) (BinaryUUID, string, error) {
+	return s.db.AuthenticateByPassword(ctx, username, password)
+}
+
+func (s *TieredStorage) DeviceCodeSave(ctx context.Context, session *DeviceCodeSession) error {
+	return s.cache.DeviceCodeSave(ctx, session)
+}
+
+func (s *TieredStorage) DeviceCodeGet(ctx context.Context, deviceCode string) (*DeviceCodeSession, error) {
+	return s.cache.DeviceCodeGet(ctx, deviceCode)
+}
+
+func (s *TieredStorage) DeviceCodeGetByUserCode(ctx context.Context, userCode string) (*DeviceCodeSession, error) {
+	return s.cache.DeviceCodeGetByUserCode(ctx, userCode)
+}
+
+func (s *TieredStorage) DeviceCodeUpdate(ctx context.Context, deviceCode string, session *DeviceCodeSession) error {
+	return s.cache.DeviceCodeUpdate(ctx, deviceCode, session)
+}
+
+func (s *TieredStorage) DeviceCodeDelete(ctx context.Context, deviceCode string) error {
+	return s.cache.DeviceCodeDelete(ctx, deviceCode)
+}
+
+func (s *TieredStorage) UserCreateInfo(ctx context.Context, userInfo *UserInfo) error {
+	return s.db.UserCreateInfo(ctx, userInfo)
+}
+
+func (s *TieredStorage) UserGetInfoByID(ctx context.Context, userID BinaryUUID, scopes []string) (*UserInfo, error) {
+	return s.db.UserGetInfoByID(ctx, userID, scopes)
+}
+
+func (s *TieredStorage) ClientSave(ctx context.Context, client RegisteredClient, ttl time.Duration) error {
+	return s.cache.ClientSave(ctx, client, ttl)
+}
+
+func (s *TieredStorage) ClientInvalidate(ctx context.Context, clientID BinaryUUID) error {
+	return s.cache.ClientInvalidate(ctx, clientID)
+}
+
+func (s *TieredStorage) RefreshTokenSave(ctx context.Context, session *RefreshTokenSession, ttl time.Duration) error {
+	return s.cache.RefreshTokenSave(ctx, session, ttl)
+}
+
+func (s *TieredStorage) RefreshTokenInvalidate(ctx context.Context, tokenID Hash256) error {
+	return s.cache.RefreshTokenInvalidate(ctx, tokenID)
+}
+
+func (s *TieredStorage) RefreshTokensInvalidate(ctx context.Context, tokenIDs []Hash256) error {
+	return s.cache.RefreshTokensInvalidate(ctx, tokenIDs)
+}
+
+func (s *TieredStorage) RefreshTokenListByUser(ctx context.Context, userID BinaryUUID) ([]*RefreshTokenSession, error) {
+	return s.db.RefreshTokenListByUser(ctx, userID)
+}
+
+func (s *TieredStorage) CheckAndStore(ctx context.Context, jti string, ttl time.Duration) (bool, error) {
+	return s.cache.CheckAndStore(ctx, jti, ttl)
+}
+
+func (s *TieredStorage) PARSessionSave(ctx context.Context, requestURI string, req *AuthorizeRequest, ttl time.Duration) error {
+	return s.cache.PARSessionSave(ctx, requestURI, req, ttl)
+}
+
+func (s *TieredStorage) PARSessionConsume(ctx context.Context, requestURI string) (*AuthorizeRequest, error) {
+	return s.cache.PARSessionConsume(ctx, requestURI)
+}
+
+func (s *TieredStorage) Lock(ctx context.Context, key string, ttl time.Duration) (bool, error) {
+	return s.cache.Lock(ctx, key, ttl)
+}
+
+func (s *TieredStorage) Unlock(ctx context.Context, key string) error {
+	return s.cache.Unlock(ctx, key)
+}
+
+// ---------------------------------------------------------------------------
+// AuthCodeStorage
+// ---------------------------------------------------------------------------
+
+func (s *TieredStorage) AuthCodeSave(ctx context.Context, session *AuthCodeSession) error {
+	return s.cache.AuthCodeSave(ctx, session)
+}
+
+func (s *TieredStorage) AuthCodeConsume(ctx context.Context, code string) (*AuthCodeSession, error) {
+	return s.cache.AuthCodeConsume(ctx, code)
+}
+
+// ---------------------------------------------------------------------------
+// RevocationStorage
+// ---------------------------------------------------------------------------
+
+func (s *TieredStorage) AccessTokenRevoke(ctx context.Context, jti string, expiration time.Time) error {
+	return s.cache.AccessTokenRevoke(ctx, jti, expiration)
+}
+
+func (s *TieredStorage) AccessTokenIsRevoked(ctx context.Context, jti string) (bool, error) {
+	return s.cache.AccessTokenIsRevoked(ctx, jti)
+}
+
+func (s *TieredStorage) Cleanup(ctx context.Context) (int64, error) {
+	return s.db.Cleanup(ctx)
+}
+
+func (s *TieredStorage) Close() {
+	s.db.Close()
+}
+
+// ---------------------------------------------------------------------------
 // helpers
 // ---------------------------------------------------------------------------
 

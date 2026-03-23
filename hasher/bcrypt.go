@@ -44,3 +44,14 @@ func (h *BcryptHasher) Compare(ctx context.Context, hashedPassword []byte, passw
 	defer span.End()
 	return bcrypt.CompareHashAndPassword(hashedPassword, password)
 }
+
+// DummyCompare 执行一个虚拟的比较操作，以防止发生时序攻击。
+func (h *BcryptHasher) DummyCompare(ctx context.Context, password []byte) error {
+	tracer := otel.Tracer("sso/hasher")
+	_, span := tracer.Start(ctx, "BcryptHasher.DummyCompare")
+	defer span.End()
+
+	// 通过生成一个相同代价的哈希来消耗相同的时间
+	_, _ = bcrypt.GenerateFromPassword(password, h.cost)
+	return ErrPasswordMismatch
+}

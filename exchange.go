@@ -49,6 +49,10 @@ func AuthenticateClient(ctx context.Context, storage ClientStorage, clientIDStr,
 
 	client, err := GetAndVerifyClient(ctx, storage, clientIDStr)
 	if err != nil {
+		if clientSecret != "" && hasher != nil {
+			// [安全] 执行虚拟的哈希比较以防止时序攻击，这样即使客户端不存在，响应时间也与验证密码失败的时间相似。
+			_ = hasher.DummyCompare(ctx, []byte(clientSecret))
+		}
 		return nil, err
 	}
 

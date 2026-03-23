@@ -102,6 +102,22 @@ func (h *Argon2Hasher) Compare(ctx context.Context, hashedPassword []byte, passw
 	return ErrPasswordMismatch
 }
 
+// DummyCompare 执行一个虚拟的比较操作，以防止在找不到记录时发生时序攻击。
+func (h *Argon2Hasher) DummyCompare(ctx context.Context, password []byte) error {
+	tracer := otel.Tracer("sso/hasher")
+	_, span := tracer.Start(ctx, "Argon2Hasher.DummyCompare")
+	defer span.End()
+
+	dummySalt := make([]byte, h.saltLen)
+	dummyHash := make([]byte, h.keyLen)
+
+	otherHash := argon2.IDKey(password, dummySalt, h.time, h.memory, h.threads, h.keyLen)
+
+	subtle.ConstantTimeCompare(dummyHash, otherHash)
+
+	return ErrPasswordMismatch
+}
+
 type argon2Params struct {
 	time    uint32
 	memory  uint32

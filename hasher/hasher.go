@@ -12,4 +12,7 @@ type Hasher interface {
 	// Compare 将明文密码与已有的哈希值进行比较。
 	// 如果匹配，则返回nil；否则返回错误。
 	Compare(ctx context.Context, hashedPassword []byte, password []byte) error
+
+	// DummyCompare 执行一个虚拟的比较操作，以防止在找不到用户或客户端时发生时序攻击。
+	DummyCompare(ctx context.Context, password []byte) error
 }

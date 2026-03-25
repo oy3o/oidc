@@ -5,34 +5,35 @@ import (
 	"fmt"
 
 	"github.com/bytedance/sonic"
+	"gorm.io/gorm"
+	"gorm.io/gorm/schema"
 )
 
-// SecretString 是一种自定义字符串类型，用于防止敏感信息在日志中被意外打印。
-// 注意：当用于存储 Client Secret 时，此字段应存储哈希后的值，而非明文。
-// 在 ClientMetadata 中，Secret 字段通过 Hasher 接口哈希后再赋值给此类型。
+// --- SecretString ---
+
 type SecretString string
 
-// String 方法重写了默认行为，使其在被格式化打印时返回一个屏蔽后的字符串。
-func (s SecretString) String() string {
-	return "[REDACTED]"
-}
+func (s SecretString) String() string   { return "[REDACTED]" }
+func (s SecretString) GoString() string { return "Secret.String(***)" }
 
-// Go 语法格式化接口 (%#v) - 往常容易被忽略的泄露点
-func (s SecretString) GoString() string {
-	return "Secret.String(***)"
-}
-
-// MarshalJSON 方法确保在将配置序列化为JSON时，敏感字段也被屏蔽。
 func (s SecretString) MarshalJSON() ([]byte, error) {
 	return []byte(`"[REDACTED]"`), nil
 }
 
-// Value 实现 driver.Valuer 接口, 告诉数据库如何写入 String
+// UnmarshalJSON 允许从 JSON 中读取原始值（JSON string → SecretString）
+func (s *SecretString) UnmarshalJSON(b []byte) error {
+	var str string
+	if err := sonic.Unmarshal(b, &str); err != nil {
+		return err
+	}
+	*s = SecretString(str)
+	return nil
+}
+
 func (s SecretString) Value() (driver.Value, error) {
 	return string(s), nil
 }
 
-// Scan 实现 sql.Scanner 接口, 告诉 Go 如何从数据库读取值到 String
 func (s *SecretString) Scan(value interface{}) error {
 	if value == nil {
 		*s = ""
@@ -44,84 +45,130 @@ func (s *SecretString) Scan(value interface{}) error {
 	case string:
 		*s = SecretString(v)
 	default:
-		return fmt.Errorf("unsupported type for secret.String: %T", value)
+		return fmt.Errorf("unsupported type for SecretString: %T", value)
 	}
 	return nil
 }
 
-// SecretBytes 是一种自定义字节切片类型，用于防止敏感信息在日志中被意外打印。
-// 注意：当用于存储密码或 Secret 的哈希值时，应确保存储的是哈希后的值。
+// GormDBDataType 针对不同数据库返回合法的字段类型
+func (SecretString) GormDBDataType(db *gorm.DB, _ *schema.Field) string {
+	switch db.Dialector.Name() {
+	case "postgres":
+		return "TEXT"
+	case "mysql":
+		return "TEXT"
+	case "sqlite":
+		return "TEXT"
+	}
+	return "TEXT"
+}
+
+// --- SecretBytes ---
+
 type SecretBytes []byte
 
-// Bytes 方法重写了默认行为，使其在被格式化打印时返回一个屏蔽后的字符串。
-func (s SecretBytes) String() string {
-	return "[REDACTED]"
-}
+func (s SecretBytes) String() string   { return "[REDACTED]" }
+func (s SecretBytes) GoString() string { return "Secret.Bytes(***)" }
 
-// Go 语法格式化接口 (%#v) - 往常容易被忽略的泄露点
-func (s SecretBytes) GoString() string {
-	return "Secret.Bytes(***)"
-}
-
-// MarshalJSON 方法确保在将配置序列化为JSON时，敏感字段也被屏蔽。
 func (s SecretBytes) MarshalJSON() ([]byte, error) {
 	return []byte(`"[REDACTED]"`), nil
 }
 
-// Value 实现 driver.Valuer 接口, 告诉数据库如何写入 Bytes
+// UnmarshalJSON 允许从 JSON 中读取原始值。
+// 注意：Go 标准 JSON（及 sonic）对 []byte 的编解码使用 base64，
+// 因此 JSON 中的值必须是 base64 编码的字符串，而非普通字符串。
+func (s *SecretBytes) UnmarshalJSON(b []byte) error {
+	var raw []byte
+	if err := sonic.Unmarshal(b, &raw); err != nil {
+		return err
+	}
+	*s = SecretBytes(raw)
+	return nil
+}
+
 func (s SecretBytes) Value() (driver.Value, error) {
+	if s == nil {
+		return nil, nil
+	}
 	return []byte(s), nil
 }
 
-// Scan 实现 sql.Scanner 接口, 告诉 Go 如何从数据库读取值到 Bytes
 func (s *SecretBytes) Scan(value interface{}) error {
 	if value == nil {
 		*s = nil
 		return nil
 	}
-	var b []byte
+	var raw []byte
 	switch v := value.(type) {
 	case []byte:
-		b = v
+		raw = v
 	case string:
-		b = []byte(v)
+		raw = []byte(v)
 	default:
-		return fmt.Errorf("unsupported type for secret.Bytes: %T", value)
+		return fmt.Errorf("unsupported type for SecretBytes: %T", value)
 	}
-	// 必须复制字节切片，因为底层的数组可能会被驱动重用
-	dest := make(SecretBytes, len(b))
-	copy(dest, b)
+	// 深度拷贝，防止驱动层重用缓冲区
+	dest := make(SecretBytes, len(raw))
+	copy(dest, raw)
 	*s = dest
 	return nil
 }
 
-// StringSlice 用于在数据库中以 JSON 格式存储 []string
+// GormDBDataType 针对不同数据库返回合法的二进制字段类型
+func (SecretBytes) GormDBDataType(db *gorm.DB, _ *schema.Field) string {
+	switch db.Dialector.Name() {
+	case "postgres":
+		return "BYTEA"
+	case "mysql":
+		return "BLOB"
+	case "sqlite":
+		return "BLOB"
+	}
+	return "BLOB"
+}
+
+// --- StringSlice ---
+
 type StringSlice []string
 
 func (ss StringSlice) Value() (driver.Value, error) {
+	if ss == nil {
+		return nil, nil // 允许数据库存储 NULL
+	}
 	if len(ss) == 0 {
 		return "[]", nil
 	}
-	return sonic.Marshal(ss)
+	return sonic.MarshalString(ss)
 }
 
 func (ss *StringSlice) Scan(value interface{}) error {
 	if value == nil {
-		*ss = []string{}
+		*ss = nil
 		return nil
 	}
-	var bytes []byte
+	var raw []byte
 	switch v := value.(type) {
 	case []byte:
-		bytes = v
+		raw = v
 	case string:
-		bytes = []byte(v)
+		raw = []byte(v)
 	default:
 		return fmt.Errorf("failed to scan StringSlice: %v", value)
 	}
-	if len(bytes) == 0 {
+	if len(raw) == 0 {
 		*ss = []string{}
 		return nil
 	}
-	return sonic.Unmarshal(bytes, ss)
+	return sonic.Unmarshal(raw, ss)
+}
+
+// GormDBDataType 针对不同的数据库返回不同的 JSON 类型定义
+func (StringSlice) GormDBDataType(db *gorm.DB, _ *schema.Field) string {
+	switch db.Dialector.Name() {
+	case "mysql", "sqlite":
+		return "JSON"
+	case "postgres":
+		return "JSONB"
+	}
+	return "TEXT"
 }

@@ -6,12 +6,15 @@ import (
 
 	"github.com/bytedance/sonic"
 	"github.com/google/uuid"
+	"gorm.io/gorm"
+	"gorm.io/gorm/schema"
 )
 
 // Hash256 自定义类型，零依赖
 type Hash256 []byte
 
 // Value 实现 driver.Valuer 接口 (写入数据库)
+// 存储格式：hex string，兼容 Postgres VARCHAR(64) / SQLite TEXT
 func (h Hash256) Value() (driver.Value, error) {
 	if len(h) == 0 {
 		return nil, nil
@@ -19,7 +22,6 @@ func (h Hash256) Value() (driver.Value, error) {
 	if len(h) != 32 {
 		return nil, ErrHash256InvalidLength
 	}
-	// 为了兼容 Postgres Varchar(64)
 	return h.String(), nil
 }
 
@@ -31,30 +33,46 @@ func (h *Hash256) Scan(value interface{}) error {
 	}
 	switch v := value.(type) {
 	case []byte:
-		if len(v) != 32 {
-			return ErrHash256ScanInvalidLength
+		// 驱动返回裸二进制（长度 32）
+		if len(v) == 32 {
+			dst := make(Hash256, 32)
+			copy(dst, v)
+			*h = dst
+			return nil
 		}
-		// 必须深拷贝
-		dst := make(Hash256, 32)
-		copy(dst, v)
-		*h = dst
-	case string:
-		// 某些驱动（如 SQLite）可能返回 string
-		// 如果是 hex 字符串 (长度64)
+		// 某些驱动（如 lib/pq）把 VARCHAR(64) 以 []byte 形式返回（长度 64）
 		if len(v) == 64 {
-			b, err := hex.DecodeString(v)
+			decoded, err := hex.DecodeString(string(v))
 			if err != nil {
 				return err
 			}
-			*h = b
+			*h = decoded
 			return nil
 		}
-		// 或者是某些驱动把 binary 强转为 string
-		*h = Hash256(v)
+		return ErrHash256ScanInvalidLength
+
+	case string:
+		// hex 字符串（长度 64）
+		if len(v) == 64 {
+			decoded, err := hex.DecodeString(v)
+			if err != nil {
+				return err
+			}
+			*h = decoded
+			return nil
+		}
+		// 某些驱动把 binary 强转为 string（长度 32）
+		if len(v) == 32 {
+			dst := make(Hash256, 32)
+			copy(dst, v)
+			*h = dst
+			return nil
+		}
+		return ErrHash256ScanInvalidLength
+
 	default:
 		return ErrHash256UnsupportedType
 	}
-	return nil
 }
 
 // ---------------------------------------------------------
@@ -74,14 +92,14 @@ func (h *Hash256) UnmarshalJSON(data []byte) error {
 		*h = nil
 		return nil
 	}
-	bytes, err := hex.DecodeString(hexStr)
+	decoded, err := hex.DecodeString(hexStr)
 	if err != nil {
 		return err
 	}
-	if len(bytes) != 32 {
+	if len(decoded) != 32 {
 		return ErrInvalidHexStringLength
 	}
-	*h = bytes
+	*h = decoded
 	return nil
 }
 
@@ -90,6 +108,19 @@ func (h Hash256) String() string {
 		return ""
 	}
 	return hex.EncodeToString(h)
+}
+
+// GormDBDataType 针对不同数据库返回合法的字段类型
+func (Hash256) GormDBDataType(db *gorm.DB, _ *schema.Field) string {
+	switch db.Dialector.Name() {
+	case "postgres":
+		return "VARCHAR(64)"
+	case "mysql":
+		return "CHAR(64)"
+	case "sqlite":
+		return "TEXT"
+	}
+	return "VARCHAR(64)"
 }
 
 // BinaryUUID 包装标准 UUID，强制数据库交互使用二进制
@@ -101,8 +132,6 @@ type BinaryUUID uuid.UUID
 
 // Value 实现 driver.Valuer (写入数据库)
 func (b BinaryUUID) Value() (driver.Value, error) {
-	// 关键点：这里调用 MarshalBinary 转为 []byte
-	// 这样 GORM 才会把它当做 binary 数据处理
 	return uuid.UUID(b).MarshalBinary()
 }
 
@@ -113,7 +142,6 @@ func (b *BinaryUUID) Scan(value interface{}) error {
 		return nil
 	}
 
-	// 复用 google/uuid 的解析逻辑，它很强大，能处理 string 和 []byte
 	var u uuid.UUID
 	var err error
 
@@ -122,7 +150,7 @@ func (b *BinaryUUID) Scan(value interface{}) error {
 		if len(v) == 16 {
 			u, err = uuid.FromBytes(v)
 		} else {
-			// 兼容某些驱动可能把 varchar(36) 转成 []byte 返回的情况
+			// 兼容某些驱动把 varchar(36) 转成 []byte 返回的情况
 			u, err = uuid.ParseBytes(v)
 		}
 	case [16]byte:
@@ -140,20 +168,37 @@ func (b *BinaryUUID) Scan(value interface{}) error {
 	return nil
 }
 
+// GormDBDataType 针对不同数据库返回合法的二进制字段类型
+func (BinaryUUID) GormDBDataType(db *gorm.DB, _ *schema.Field) string {
+	switch db.Dialector.Name() {
+	case "postgres":
+		return "UUID"
+	case "mysql":
+		return "BINARY(16)"
+	case "sqlite":
+		return "BLOB"
+	}
+	return "BINARY(16)"
+}
+
 // ---------------------------------------------------------
 // 2. JSON 接口：保持前端友好 (String)
 // ---------------------------------------------------------
 
-// MarshalJSON 必须重写！否则 Go 会把底层 []byte 转成 Base64 字符串
+// MarshalJSON 必须重写！否则 Go 会把底层 [16]byte 转成 Base64 字符串
 func (b BinaryUUID) MarshalJSON() ([]byte, error) {
 	return sonic.Marshal(uuid.UUID(b).String())
 }
 
-// UnmarshalJSON 从字符串解析
+// UnmarshalJSON 从字符串解析，空字符串映射为 uuid.Nil
 func (b *BinaryUUID) UnmarshalJSON(data []byte) error {
 	var s string
 	if err := sonic.Unmarshal(data, &s); err != nil {
 		return err
+	}
+	if s == "" {
+		*b = BinaryUUID(uuid.Nil)
+		return nil
 	}
 	id, err := uuid.Parse(s)
 	if err != nil {

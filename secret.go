@@ -96,12 +96,3 @@ func (s *SecretManager) RotateKey(newKID string, newHexSecret string, gracePerio
 
 	return ErrMemoryProviderOnly
 }
-
-// CleanupExpiredKeys 清理已过期的密钥
-// 返回清理的密钥数量
-func (s *SecretManager) CleanupExpiredKeys() (int, error) {
-	if memProvider, ok := s.provider.(*MemoryKeyProvider); ok {
-		return memProvider.CleanupExpiredKeys(context.Background()), nil
-	}
-	return 0, ErrMemoryProviderOnly
-}

@@ -152,6 +152,11 @@ func (m *MemoryKeyProvider) RotateKey(newKID string, newKey []byte, gracePeriod 
 	// 将旧密钥标记为 deprecated
 	if oldKID != "" {
 		m.deprecated.Store(oldKID, time.Now().Add(gracePeriod))
+		// 自动清理：在 gracePeriod 后从 keys 和 deprecated 中移除
+		time.AfterFunc(gracePeriod, func() {
+			m.keys.Delete(oldKID)
+			m.deprecated.Delete(oldKID)
+		})
 	}
 
 	return nil
@@ -167,22 +172,4 @@ func (m *MemoryKeyProvider) RemoveKey(kid string) error {
 	m.keys.Delete(kid)
 	m.deprecated.Delete(kid)
 	return nil
-}
-
-// CleanupExpiredKeys 清理已过期的 deprecated keys
-// 应该定期调用（例如通过 cron）
-func (m *MemoryKeyProvider) CleanupExpiredKeys(ctx context.Context) int {
-	now := time.Now()
-	count := 0
-
-	m.deprecated.Range(func(kid string, expireAt time.Time) bool {
-		if now.After(expireAt) {
-			m.keys.Delete(kid)
-			m.deprecated.Delete(kid)
-			count++
-		}
-		return true
-	})
-
-	return count
 }

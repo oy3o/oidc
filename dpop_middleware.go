@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+
+	"github.com/golang-jwt/jwt/v5"
 )
 
 // DPoPContext 是用于在 context 中传递 DPoP 验证结果的 key
@@ -14,6 +16,7 @@ type DpopContextKey struct{}
 // DPoPClaims 存储 DPoP 验证后的信息
 type DPoPClaims struct {
 	JKT string // JWK Thumbprint，用于绑定到 Access Token
+	ATH string // Access Token hash (RFC 9449)
 }
 
 // DPoPMiddleware 创建一个中间件来验证 DPoP proof
@@ -54,8 +57,15 @@ func DPoPMiddleware(cache ReplayCache, required bool) func(http.Handler) http.Ha
 				return
 			}
 
+			var proof DPoPProof
+			if _, _, err := new(jwt.Parser).ParseUnverified(dpopHeader, &proof); err != nil {
+				errMsg := fmt.Sprintf(`{"error":"invalid_dpop_proof","error_description":"%s"}`, err.Error())
+				http.Error(w, errMsg, http.StatusUnauthorized)
+				return
+			}
+
 			// 4. 将 DPoP claims 存入 context
-			claims := &DPoPClaims{JKT: jkt}
+			claims := &DPoPClaims{JKT: jkt, ATH: proof.ATH}
 			ctx = context.WithValue(ctx, DpopContextKey{}, claims)
 
 			// 5. 继续处理请求

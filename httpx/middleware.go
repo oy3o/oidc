@@ -2,6 +2,8 @@ package httpx
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"net/http"
@@ -50,13 +52,25 @@ func AuthenticationMiddleware(s *oidc.Server, customStrategies ...httpx.AuthStra
 			return nil, errors.New("Bearer token used with DPoP scheme")
 		}
 
-		currentJKT := oidc.ExtractDPoPJKT(ctx)
-		if currentJKT == "" {
+		dpopClaims, ok := oidc.DPoPFromContext(ctx)
+		if !ok {
 			return nil, errors.New("Missing DPoP proof")
 		}
 
-		if currentJKT != tokenBoundJKT {
+		if dpopClaims.JKT != tokenBoundJKT {
 			return nil, errors.New("DPoP proof mismatch")
+		}
+
+		// ath (Access Token Hash) 绑定检查 (RFC 9449 Section 4.2)
+		// 当 DPoP 用于访问受保护资源时，Proof 必须包含正确的 ath claim
+		if dpopClaims.ATH == "" {
+			return nil, errors.New("Missing DPoP ath claim")
+		}
+
+		sum := sha256.Sum256([]byte(tokenStr))
+		expectedATH := base64.RawURLEncoding.EncodeToString(sum[:])
+		if dpopClaims.ATH != expectedATH {
+			return nil, errors.New("DPoP ath mismatch")
 		}
 
 		return claims, nil

@@ -5,6 +5,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"errors"
 	"net/http"
@@ -22,7 +23,7 @@ import (
 )
 
 // generateDPoPHeader 辅助函数：生成 DPoP Proof Header
-func generateDPoPHeader(t *testing.T, key *ecdsa.PrivateKey, method, uri string) string {
+func generateDPoPHeader(t *testing.T, key *ecdsa.PrivateKey, method, uri, accessToken string) string {
 	jwkMap := map[string]interface{}{
 		"kty": "EC",
 		"crv": "P-256",
@@ -35,6 +36,11 @@ func generateDPoPHeader(t *testing.T, key *ecdsa.PrivateKey, method, uri string)
 		"htu": uri,
 		"iat": time.Now().Unix(),
 		"jti": uuid.New().String(),
+	}
+
+	if accessToken != "" {
+		sum := sha256.Sum256([]byte(accessToken))
+		claims["ath"] = base64.RawURLEncoding.EncodeToString(sum[:])
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodES256, claims)
@@ -155,8 +161,8 @@ func TestAuthenticationMiddleware_Integration(t *testing.T) {
 				uri := "http://example.com/resource"
 				req := httptest.NewRequest("GET", uri, nil)
 				req.Header.Set("Authorization", "DPoP "+dpopToken)
-				// 添加 DPoP Proof
-				proof := generateDPoPHeader(t, dpopKey, "GET", uri)
+				// 添加 DPoP Proof (包含 ath)
+				proof := generateDPoPHeader(t, dpopKey, "GET", uri, dpopToken)
 				req.Header.Set("DPoP", proof)
 				return req
 			},
@@ -213,7 +219,7 @@ func TestAuthenticationMiddleware_Integration(t *testing.T) {
 
 				// 使用另一个 Key 签名 Proof
 				otherKey, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-				proof := generateDPoPHeader(t, otherKey, "GET", uri)
+				proof := generateDPoPHeader(t, otherKey, "GET", uri, dpopToken)
 				req.Header.Set("DPoP", proof)
 				return req
 			},

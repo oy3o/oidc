@@ -26,6 +26,9 @@ type DPoPProof struct {
 	// htu: HTTP URI (必需，不包含查询参数和片段)
 	HTU string `json:"htu"`
 
+	// ath: Access Token 哈希 (DPoP 访问受保护资源时必需)
+	ATH string `json:"ath,omitempty"`
+
 	// Nonce: 可选，服务器可以要求客户端包含 nonce 以防重放
 	Nonce string `json:"nonce,omitempty"`
 }

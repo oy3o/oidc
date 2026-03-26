@@ -145,10 +145,21 @@ func GetUserInfo(ctx context.Context, storage UserInfoGetter, verifier TokenVeri
 	// 如果 Access Token 绑定了 DPoP (cnf.jkt)，则请求必须包含匹配的 DPoP Proof
 	if claims.Confirmation != nil {
 		if jkt, ok := claims.Confirmation["jkt"].(string); ok && jkt != "" {
-			currentJKT := ExtractDPoPJKT(ctx)
-			if currentJKT != jkt {
+			dpopClaims, ok := DPoPFromContext(ctx)
+			if !ok {
+				return nil, fmt.Errorf("%w: missing DPoP proof", ErrInvalidGrant)
+			}
+			if dpopClaims.JKT != jkt {
 				return nil, fmt.Errorf("%w: DPoP proof mismatch", ErrInvalidGrant)
 			}
+
+			// ath (Access Token Hash) 绑定检查 (RFC 9449 Section 4.2)
+			if dpopClaims.ATH == "" {
+				return nil, fmt.Errorf("%w: missing DPoP ath claim", ErrInvalidGrant)
+			}
+
+			// 注意：更严格的 ath 验证（即校验 tokenStr 的哈希）通常在认证中间件中完成。
+			// 此处主要确保 ath 声明存在并符合 DPoP 应用上下文。
 		}
 	}
 

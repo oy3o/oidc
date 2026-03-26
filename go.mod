@@ -7,9 +7,9 @@ require (
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/google/uuid v1.6.0
 	github.com/lestrrat-go/jwx/v2 v2.1.6
-	github.com/oy3o/httpx v1.5.10
+	github.com/oy3o/httpx v1.5.11
 	github.com/oy3o/o11y v1.5.0
-	github.com/oy3o/singleflight v1.0.6
+	github.com/oy3o/singleflight v1.0.7
 	github.com/puzpuzpuz/xsync/v4 v4.4.0
 	github.com/rs/zerolog v1.34.0
 	github.com/stretchr/testify v1.11.1

@@ -108,12 +108,12 @@ github.com/mattn/go-isatty v0.0.20 h1:xfD0iDuEKnDkl03q4limB+vH+GxLEtL/jb4xVJSWWE
 github.com/mattn/go-isatty v0.0.20/go.mod h1:W+V8PltTTMOvKvAeJH7IuucS94S2C6jfK/D7dTCTo3Y=
 github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 h1:C3w9PqII01/Oq1c1nUAm88MOHcQC9l5mIlSMApZMrHA=
 github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822/go.mod h1:+n7T8mK8HuQTcFwEeznm/DIxMOiR9yIdICNftLE1DvQ=
-github.com/oy3o/httpx v1.5.10 h1:eIiePr7IeshAf99DnxxlzYQxlRX3MJXrJcH6VRjw74w=
-github.com/oy3o/httpx v1.5.10/go.mod h1:K9OQg659qDZ9mATdDbVnU/OO0WLoebr1r75SRv9hEj0=
+github.com/oy3o/httpx v1.5.11 h1:e/GOCjrdNl7oNEss63f+CQT1EcyrbD3iCWWA45B3gAQ=
+github.com/oy3o/httpx v1.5.11/go.mod h1:K9OQg659qDZ9mATdDbVnU/OO0WLoebr1r75SRv9hEj0=
 github.com/oy3o/o11y v1.5.0 h1:cM1kDKHkMcC5Sg44sAmQJ/VlMp31s+KJ8EJE83yWQBY=
 github.com/oy3o/o11y v1.5.0/go.mod h1:l83ejtjhUec0XK3iTPc+nINMC1YMdIAqvPMdu+G2JWE=
-github.com/oy3o/singleflight v1.0.6 h1:m8AMW6CETwdiM0gqoGPUyTnKCv7zZGd0w+qIZJ0OkT8=
-github.com/oy3o/singleflight v1.0.6/go.mod h1:WvmhlpFl7VFiY6R8+twsJLE5GN7u7xBjxcRhSJYSPvU=
+github.com/oy3o/singleflight v1.0.7 h1:6Pwj70M2lMTm0T3R8jCsFt8Wa9NqeHHoiL7CzOoF+0Y=
+github.com/oy3o/singleflight v1.0.7/go.mod h1:WvmhlpFl7VFiY6R8+twsJLE5GN7u7xBjxcRhSJYSPvU=
 github.com/pkg/errors v0.9.1 h1:FEBLx1zS214owpjy7qsBeixbURkuhQAwrK5UwLGTwt4=
 github.com/pkg/errors v0.9.1/go.mod h1:bwawxfHBFNV+L2hUp1rHADufV3IMtnDRdf1r5NINEl0=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=

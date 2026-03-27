@@ -44,3 +44,14 @@ func (h *BcryptHasher) Compare(ctx context.Context, hashedPassword []byte, passw
 	defer span.End()
 	return bcrypt.CompareHashAndPassword(hashedPassword, password)
 }
+
+// DummyCompare 执行一次恒定的哈希计算操作（不进行实际对比），
+// 用于在客户端未找到或未提供密码时平衡响应时间，防止时序攻击枚举客户端ID。
+func (h *BcryptHasher) DummyCompare(ctx context.Context) {
+	tracer := otel.Tracer("sso/hasher")
+	_, span := tracer.Start(ctx, "BcryptHasher.DummyCompare")
+	defer span.End()
+	// 执行一次恒定的哈希操作，使用预先计算好的哈希值和无意义的输入，避免双重工作
+	dummyHash := []byte("$2a$11$uEFOkyFpQgkVy3zOKnDeXe.LvkkIAJMx9tTD7OV0/dj8UuhmboipC")
+	_ = bcrypt.CompareHashAndPassword(dummyHash, []byte("dummy"))
+}

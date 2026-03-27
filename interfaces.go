@@ -207,6 +207,10 @@ type Hasher interface {
 	// Compare 将明文密码与已有的哈希值进行比较。
 	// 如果匹配，则返回nil；否则返回错误。
 	Compare(ctx context.Context, hashedPassword []byte, password []byte) error
+
+	// DummyCompare 执行一次恒定的哈希计算操作（不进行实际对比），
+	// 用于在客户端未找到或未提供密码时平衡响应时间，防止时序攻击枚举客户端ID。
+	DummyCompare(ctx context.Context)
 }
 
 // ReplayCache 定义了防重放攻击的缓存接口。

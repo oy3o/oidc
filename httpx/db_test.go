@@ -135,6 +135,8 @@ func (m *mockStorage) JWKList(ctx context.Context) ([]jwk.Key, error) {
 	return keys, nil
 }
 
+func (m *mockHasher) DummyCompare(ctx context.Context) {}
+
 func (m *mockStorage) UserCreateInfo(ctx context.Context, userInfo *oidc.UserInfo) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

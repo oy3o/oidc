@@ -49,12 +49,18 @@ func AuthenticateClient(ctx context.Context, storage ClientStorage, clientIDStr,
 
 	client, err := GetAndVerifyClient(ctx, storage, clientIDStr)
 	if err != nil {
+		// [安全] 为了防止通过时序攻击枚举客户端ID，如果未找到客户端，执行一次恒定的哈希计算
+		if errors.Is(err, ErrInvalidClient) {
+			hasher.DummyCompare(ctx)
+		}
 		return nil, err
 	}
 
 	// 验证 Secret (仅针对机密客户端)
 	if client.IsConfidential() {
 		if clientSecret == "" {
+			// [安全] 如果密码为空，也要执行一次恒定的哈希计算，平衡响应时间
+			hasher.DummyCompare(ctx)
 			return nil, fmt.Errorf("%w: invalid client", ErrInvalidClient)
 		}
 		if err := client.ValidateSecret(ctx, hasher, clientSecret); err != nil {

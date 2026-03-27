@@ -102,6 +102,19 @@ func (h *Argon2Hasher) Compare(ctx context.Context, hashedPassword []byte, passw
 	return ErrPasswordMismatch
 }
 
+// DummyCompare 执行一次恒定的哈希计算操作（不进行实际对比），
+// 用于在客户端未找到或未提供密码时平衡响应时间，防止时序攻击枚举客户端ID。
+func (h *Argon2Hasher) DummyCompare(ctx context.Context) {
+	tracer := otel.Tracer("sso/hasher")
+	_, span := tracer.Start(ctx, "Argon2Hasher.DummyCompare")
+	defer span.End()
+
+	// 执行一次恒定的哈希操作，使用预先计算好的有效格式哈希值和无意义的输入
+	// AAAAAAAAAAAA 对应 9字节 的盐 (12 base64 chars = 9 bytes)
+	dummyHash := []byte("$argon2id$v=19$m=65536,t=1,p=4$AAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+	_ = h.Compare(ctx, dummyHash, []byte("dummy"))
+}
+
 type argon2Params struct {
 	time    uint32
 	memory  uint32

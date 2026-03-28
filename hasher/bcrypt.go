@@ -2,6 +2,7 @@ package hasher
 
 import (
 	"context"
+	"fmt"
 
 	"go.opentelemetry.io/otel"
 	"golang.org/x/crypto/bcrypt"
@@ -43,4 +44,24 @@ func (h *BcryptHasher) Compare(ctx context.Context, hashedPassword []byte, passw
 	_, span := tracer.Start(ctx, "BcryptHasher.Compare")
 	defer span.End()
 	return bcrypt.CompareHashAndPassword(hashedPassword, password)
+}
+
+// DummyCompare 执行一次虚拟的哈希比较。
+// 即使账户不存在，也要消耗与真实成本对等的 CPU 时间。
+func (h *BcryptHasher) DummyCompare(ctx context.Context) error {
+	// 1. 构建一个格式正确的假 Bcrypt 哈希字符串。
+	// Bcrypt 格式: $2a$[cost]$[22个字符的盐][31个字符的哈希]
+	// 我们必须确保这里的 cost 与实例配置的 h.cost 一致，否则计算耗时会暴露真相。
+
+	// 这里使用一个 53 字符长的合法 fake 盐与哈希（22 盐 + 31 哈希）
+	const dummySaltAndHash = "RS4eK8.O8Z.99Eshq9atvOUP9yS4eK8.O8Z.99Eshq9atvOUP9yS4e"
+	dummyHash := fmt.Sprintf("$2a$%02d$%s", h.cost, dummySaltAndHash)
+
+	// 2. 执行比较。
+	// 即使我们知道它必败，也要让 bcrypt 内部进行完整的密文计算。
+	_ = bcrypt.CompareHashAndPassword([]byte(dummyHash), []byte("dummy_password"))
+
+	// 3. 始终返回不匹配错误。
+	// 注意：ErrPasswordMismatch 应该在你的接口层或包中统一定义。
+	return ErrPasswordMismatch
 }

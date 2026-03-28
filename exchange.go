@@ -48,6 +48,11 @@ func AuthenticateClient(ctx context.Context, storage ClientStorage, clientIDStr,
 	}
 
 	client, err := GetAndVerifyClient(ctx, storage, clientIDStr)
+	if errors.Is(err, ErrInvalidClient) {
+		_ = hasher.DummyCompare(ctx)
+		return nil, fmt.Errorf("%w: invalid client", ErrInvalidClient)
+	}
+
 	if err != nil {
 		return nil, err
 	}

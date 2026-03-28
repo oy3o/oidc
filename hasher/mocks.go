@@ -103,6 +103,52 @@ func (_c *MockHasher_Compare_Call) RunAndReturn(run func(ctx context.Context, ha
 	return _c
 }
 
+// DummyCompare provides a mock function for the type MockHasher
+func (_mock *MockHasher) DummyCompare(ctx context.Context) error {
+	ret := _mock.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DummyCompare")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context) error); ok {
+		r0 = returnFunc(ctx)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockHasher_DummyCompare_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DummyCompare'
+type MockHasher_DummyCompare_Call struct {
+	*mock.Call
+}
+
+// DummyCompare is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *MockHasher_Expecter) DummyCompare(ctx interface{}) *MockHasher_DummyCompare_Call {
+	return &MockHasher_DummyCompare_Call{Call: _e.mock.On("DummyCompare", ctx)}
+}
+
+func (_c *MockHasher_DummyCompare_Call) Run(run func(ctx context.Context)) *MockHasher_DummyCompare_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *MockHasher_DummyCompare_Call) Return(err error) *MockHasher_DummyCompare_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *MockHasher_DummyCompare_Call) RunAndReturn(run func(context.Context) error) *MockHasher_DummyCompare_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // Hash provides a mock function for the type MockHasher
 func (_mock *MockHasher) Hash(ctx context.Context, password []byte) ([]byte, error) {
 	ret := _mock.Called(ctx, password)

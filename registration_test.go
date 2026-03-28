@@ -26,6 +26,10 @@ func (h *regTestHasher) Compare(ctx context.Context, hashedPassword []byte, pass
 	return oidc.ErrInvalidGrant
 }
 
+func (h *regTestHasher) DummyCompare(ctx context.Context) error {
+	return nil
+}
+
 func TestRegisterClient_Confidential(t *testing.T) {
 	storage, _ := NewTestStorage(t)
 	hasher := &regTestHasher{}

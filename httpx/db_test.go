@@ -46,10 +46,14 @@ func (m *mockHasher) Compare(ctx context.Context, hashedPassword []byte, passwor
 	return oidc.ErrInvalidGrant
 }
 
+func (m *mockHasher) DummyCompare(ctx context.Context) error {
+	return nil
+}
+
 // mockStorage 是一个为了 HTTPX 测试准备的纯内存实现，不用起容器。
 type mockStorage struct {
 	oidc.Storage // 注意：未实现的方法会直接 panic
-	
+
 	mu             sync.Mutex
 	clients        map[oidc.BinaryUUID]*oidc.ClientMetadata
 	jwks           map[string]jwk.Key

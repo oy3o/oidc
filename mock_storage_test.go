@@ -23,6 +23,10 @@ func (m *mockHasher) Compare(ctx context.Context, hashedPassword []byte, passwor
 	return nil
 }
 
+func (m *mockHasher) DummyCompare(ctx context.Context) error {
+	return nil
+}
+
 type parEntry struct {
 	req *oidc.AuthorizeRequest
 	exp time.Time
@@ -397,14 +401,14 @@ func (m *MockStorage) DeviceCodeSave(ctx context.Context, session *oidc.DeviceCo
 }
 
 func (m *MockStorage) DeviceCodeDelete(ctx context.Context, deviceCode string) error {
-    m.mu.Lock()
+	m.mu.Lock()
 	defer m.mu.Unlock()
 	delete(m.deviceSessions, deviceCode)
 	return nil
 }
 
 func (m *MockStorage) DeviceCodeGet(ctx context.Context, deviceCode string) (*oidc.DeviceCodeSession, error) {
-    m.mu.Lock()
+	m.mu.Lock()
 	defer m.mu.Unlock()
 	if s, ok := m.deviceSessions[deviceCode]; ok {
 		return s, nil
@@ -413,18 +417,18 @@ func (m *MockStorage) DeviceCodeGet(ctx context.Context, deviceCode string) (*oi
 }
 
 func (m *MockStorage) DeviceCodeGetByUserCode(ctx context.Context, userCode string) (*oidc.DeviceCodeSession, error) {
-    m.mu.Lock()
+	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, session := range m.deviceSessions {
-	    if session.UserCode == userCode {
-	        return session, nil
-	    }
+		if session.UserCode == userCode {
+			return session, nil
+		}
 	}
 	return nil, errors.New("user code not found")
 }
 
 func (m *MockStorage) DeviceCodeUpdate(ctx context.Context, deviceCode string, session *oidc.DeviceCodeSession) error {
-    m.mu.Lock()
+	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.deviceSessions[deviceCode] = session
 	return nil

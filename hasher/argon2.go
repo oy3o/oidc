@@ -59,11 +59,10 @@ func (h *Argon2Hasher) Hash(ctx context.Context, password []byte) ([]byte, error
 	_, span := tracer.Start(ctx, "Argon2Hasher.Hash")
 	defer span.End()
 	// 1. 生成一个安全的随机盐
-	salt, err := GenerateRandomString(int(h.saltLen))
-	if err != nil {
+	saltBytes := make([]byte, h.saltLen)
+	if _, err := rand.Read(saltBytes); err != nil {
 		return nil, fmt.Errorf("failed to generate salt: %w", err)
 	}
-	saltBytes := []byte(salt)
 
 	// 2. 使用 Argon2id 派生密钥（哈希）
 	hash := argon2.IDKey(password, saltBytes, h.time, h.memory, h.threads, h.keyLen)
@@ -99,6 +98,33 @@ func (h *Argon2Hasher) Compare(ctx context.Context, hashedPassword []byte, passw
 		return nil // 匹配成功
 	}
 
+	return ErrPasswordMismatch
+}
+
+// DummyCompare 执行一次虚拟的哈希比较，用于防止计时攻击。
+// 即使账户不存在，也通过执行相同的计算量来掩盖差异。
+func (h *Argon2Hasher) DummyCompare(ctx context.Context) error {
+	// 1. 模拟一个伪造的盐和密码
+	// 长度应与配置中的盐长度一致，以保持计算开销对等
+	dummySalt := make([]byte, h.saltLen)
+	dummyPassword := []byte("dummy_password_for_timing_protection")
+
+	// 2. 执行与真实比较相同的 Argon2 计算
+	// 这消耗了主要的 CPU 和内存资源
+	dummyHash := argon2.IDKey(
+		dummyPassword,
+		dummySalt,
+		h.time,
+		h.memory,
+		h.threads,
+		h.keyLen,
+	)
+
+	// 3. 模拟恒定时间比较
+	// 虽然我们知道这一定会失败，但调用 subtle.ConstantTimeCompare 能保持调用栈特征一致
+	subtle.ConstantTimeCompare(dummyHash, dummyHash)
+
+	// 4. 始终返回不匹配错误
 	return ErrPasswordMismatch
 }
 
@@ -143,13 +169,4 @@ func (h *Argon2Hasher) decodeHash(encodedHash string) (p *argon2Params, salt, ha
 	p.keyLen = uint32(len(hash))
 
 	return p, salt, hash, nil
-}
-
-// GenerateRandomString generates a cryptographically secure random string of the specified length.
-func GenerateRandomString(length int) (string, error) {
-	b := make([]byte, length)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
-	return base64.RawURLEncoding.EncodeToString(b), nil
 }

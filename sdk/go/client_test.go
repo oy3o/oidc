@@ -6,6 +6,7 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
+	"encoding/base64"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -58,6 +59,7 @@ func setupMockOIDCServer(t *testing.T) *mockServerContext {
 			IntrospectionEndpoint:              ctx.issuer + "/introspect",
 			DeviceAuthorizationEndpoint:        ctx.issuer + "/device/authorize",
 			PushedAuthorizationRequestEndpoint: ctx.issuer + "/par",
+			EndSessionEndpoint:                 ctx.issuer + "/logout",
 		}
 		sonic.ConfigDefault.NewEncoder(w).Encode(config)
 	})
@@ -125,6 +127,27 @@ func setupMockOIDCServer(t *testing.T) *mockServerContext {
 	// /userinfo
 	mux.HandleFunc("/userinfo", func(w http.ResponseWriter, r *http.Request) {
 		ctx.captureRequest(r)
+
+		// 模拟 DPoP Nonce 校验
+		if r.Header.Get("DPoP") != "" {
+			var proof struct {
+				Nonce string `json:"nonce"`
+				ATH   string `json:"ath"`
+			}
+			parts := strings.Split(r.Header.Get("DPoP"), ".")
+			if len(parts) == 3 {
+				payload, _ := base64.RawURLEncoding.DecodeString(parts[1])
+				sonic.Unmarshal(payload, &proof)
+			}
+
+			if proof.Nonce == "" {
+				w.Header().Set("DPoP-Nonce", "next-nonce-123")
+				w.WriteHeader(http.StatusUnauthorized)
+				sonic.ConfigDefault.NewEncoder(w).Encode(map[string]string{"error": "use_dpop_nonce"})
+				return
+			}
+		}
+
 		// 检查 Authorization 头
 		auth := r.Header.Get("Authorization")
 		if auth == "" {
@@ -137,6 +160,12 @@ func setupMockOIDCServer(t *testing.T) *mockServerContext {
 			Subject: "user-123",
 			Name:    &name,
 		})
+	})
+
+	// /logout
+	mux.HandleFunc("/logout", func(w http.ResponseWriter, r *http.Request) {
+		ctx.captureRequest(r)
+		w.WriteHeader(http.StatusOK)
 	})
 
 	// /revoke
@@ -293,6 +322,13 @@ func TestClient_DPoP(t *testing.T) {
 	assert.NotEmpty(t, dpopHeader, "DPoP header should be present")
 
 	// 2. UserInfo with DPoP
+	// 第一次 UserInfo 请求，没有 Nonce，Mock Server 会返回 401 并带上 Nonce
+	_, err = client.UserInfo(context.Background(), "access-token")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "use_dpop_nonce")
+	assert.Equal(t, "next-nonce-123", client.dpopNonce)
+
+	// 第二次 UserInfo 请求，应该带上 Nonce 并成功
 	userInfo, err := client.UserInfo(context.Background(), "access-token")
 	require.NoError(t, err)
 	assert.Equal(t, "Test User", *userInfo.Name)
@@ -301,6 +337,61 @@ func TestClient_DPoP(t *testing.T) {
 	authHeader := mockCtx.lastRequest.Header.Get("Authorization")
 	assert.True(t, strings.HasPrefix(authHeader, "DPoP "), "Authorization header should be DPoP type")
 	assert.NotEmpty(t, mockCtx.lastRequest.Header.Get("DPoP"))
+
+	// 验证 ATH 存在
+	// 重新获取 DPoP Header (UserInfo 请求的)
+	dpopHeader = mockCtx.lastRequest.Header.Get("DPoP")
+	parts := strings.Split(dpopHeader, ".")
+	payload, _ := base64.RawURLEncoding.DecodeString(parts[1])
+	var proof map[string]interface{}
+	sonic.Unmarshal(payload, &proof)
+	assert.NotEmpty(t, proof["ath"], "ath claim should be present for resource access")
+
+	// 3. Test DPoP Nonce Handling
+	// 已经在上面 2 中验证了 Nonce 的捕获和携带
+	assert.Equal(t, "next-nonce-123", client.dpopNonce)
+
+	dpopHeader = mockCtx.lastRequest.Header.Get("DPoP")
+
+	// 下一个请求应该带上 nonce
+	_, err = client.UserInfo(context.Background(), "access-token")
+	require.NoError(t, err)
+	dpopHeader = mockCtx.lastRequest.Header.Get("DPoP")
+	parts = strings.Split(dpopHeader, ".")
+	payload, _ = base64.RawURLEncoding.DecodeString(parts[1])
+	sonic.Unmarshal(payload, &proof)
+	assert.Equal(t, "next-nonce-123", proof["nonce"])
+}
+
+func TestClient_PasswordGrant(t *testing.T) {
+	mockCtx := setupMockOIDCServer(t)
+	defer mockCtx.Close()
+
+	client, _ := NewClient(context.Background(), ClientConfig{
+		Issuer:   mockCtx.issuer,
+		ClientID: "test-client",
+	}, nil)
+
+	token, err := client.ExchangePassword(context.Background(), "user", "pass")
+	require.NoError(t, err)
+	assert.NotEmpty(t, token.AccessToken)
+	assert.Equal(t, "password", mockCtx.lastRequest.FormValue("grant_type"))
+	assert.Equal(t, "user", mockCtx.lastRequest.FormValue("username"))
+}
+
+func TestClient_LogoutURL(t *testing.T) {
+	mockCtx := setupMockOIDCServer(t)
+	defer mockCtx.Close()
+
+	client, _ := NewClient(context.Background(), ClientConfig{
+		Issuer:   mockCtx.issuer,
+		ClientID: "test-client",
+	}, nil)
+
+	logoutURL := client.LogoutURL("id-token", "http://post-logout", "state-key")
+	assert.Contains(t, logoutURL, "/logout")
+	assert.Contains(t, logoutURL, "id_token_hint=id-token")
+	assert.Contains(t, logoutURL, "post_logout_redirect_uri=http%3A%2F%2Fpost-logout")
 }
 
 func TestClient_DeviceFlow(t *testing.T) {

@@ -4,11 +4,14 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"crypto/rsa"
+	"crypto/sha256"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -33,6 +36,10 @@ type Client struct {
 
 	// DPoP 签名密钥 (可选)
 	dpopKey oidc.Key
+
+	// DPoP Nonce (RFC 9449)
+	dpopNonce string
+	mu        sync.RWMutex
 
 	// ID Token 验证器
 	verifier *oidc.ClientVerifier
@@ -140,6 +147,9 @@ func (c *Client) PushAuthorize(ctx context.Context, state string, opts ...AuthCo
 	}
 	defer resp.Body.Close()
 
+	// 捕获 DPoP Nonce
+	c.setDPoPNonce(resp.Header.Get("DPoP-Nonce"))
+
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
 		return "", "", c.parseError(resp.Body)
 	}
@@ -198,6 +208,23 @@ func (c *Client) ExchangeRefreshToken(ctx context.Context, refreshToken string) 
 	v := url.Values{}
 	v.Set("grant_type", "refresh_token")
 	v.Set("refresh_token", refreshToken)
+	return c.doTokenRequest(ctx, v)
+}
+
+// ExchangePassword 使用用户名密码换取 Token (Resource Owner Password Credentials Grant)
+// 仅用于受信任的应用或测试环境
+func (c *Client) ExchangePassword(ctx context.Context, username, password string, scope ...string) (*Token, error) {
+	v := url.Values{}
+	v.Set("grant_type", "password")
+	v.Set("username", username)
+	v.Set("password", password)
+	reqScope := strings.Join(c.cfg.Scopes, " ")
+	if len(scope) > 0 {
+		reqScope = strings.Join(scope, " ")
+	}
+	if reqScope != "" {
+		v.Set("scope", reqScope)
+	}
 	return c.doTokenRequest(ctx, v)
 }
 
@@ -287,7 +314,8 @@ func (c *Client) PollDeviceToken(ctx context.Context, deviceCode string, interva
 			// 检查特定错误
 			oidcErr, ok := err.(*oidc.Error)
 			if !ok {
-				// 非协议错误，直接返回
+				// 获取响应头中的 Nonce (如果有)
+				// 注意：doTokenRequest 已经捕获了 Nonce
 				return nil, err
 			}
 
@@ -322,7 +350,7 @@ func (c *Client) UserInfo(ctx context.Context, accessToken string) (*oidc.UserIn
 	// 如果使用了 DPoP，Authentication 头格式为 "DPoP <token>"
 	if c.dpopKey != nil {
 		req.Header.Set("Authorization", "DPoP "+accessToken)
-		if err := c.applyDPoP(req); err != nil {
+		if err := c.applyDPoP(req, accessToken); err != nil {
 			return nil, err
 		}
 	} else {
@@ -334,6 +362,9 @@ func (c *Client) UserInfo(ctx context.Context, accessToken string) (*oidc.UserIn
 		return nil, err
 	}
 	defer resp.Body.Close()
+
+	// 捕获 DPoP Nonce
+	c.setDPoPNonce(resp.Header.Get("DPoP-Nonce"))
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, c.parseError(resp.Body)
@@ -373,6 +404,9 @@ func (c *Client) AccessTokenRevoke(ctx context.Context, token string, hint strin
 	}
 	defer resp.Body.Close()
 
+	// 捕获 DPoP Nonce
+	c.setDPoPNonce(resp.Header.Get("DPoP-Nonce"))
+
 	if resp.StatusCode != http.StatusOK {
 		return c.parseError(resp.Body)
 	}
@@ -401,6 +435,9 @@ func (c *Client) Introspect(ctx context.Context, token string) (*oidc.Introspect
 		return nil, err
 	}
 	defer resp.Body.Close()
+
+	// 捕获 DPoP Nonce
+	c.setDPoPNonce(resp.Header.Get("DPoP-Nonce"))
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, c.parseError(resp.Body)
@@ -438,6 +475,27 @@ func (c *Client) buildAuthorizeURL(state string, opts ...AuthCodeOption) string 
 	q := c.baseAuthParams(state)
 	for _, opt := range opts {
 		opt(q)
+	}
+	u.RawQuery = q.Encode()
+	return u.String()
+}
+
+// LogoutURL 生成 OIDC RP-Initiated Logout 链接
+func (c *Client) LogoutURL(idTokenHint, postLogoutRedirectURI, state string) string {
+	endpoint := c.discovery.EndSessionEndpoint
+	if endpoint == "" {
+		return ""
+	}
+	u, _ := url.Parse(endpoint)
+	q := u.Query()
+	if idTokenHint != "" {
+		q.Set("id_token_hint", idTokenHint)
+	}
+	if postLogoutRedirectURI != "" {
+		q.Set("post_logout_redirect_uri", postLogoutRedirectURI)
+	}
+	if state != "" {
+		q.Set("state", state)
 	}
 	u.RawQuery = q.Encode()
 	return u.String()
@@ -518,7 +576,8 @@ func (c *Client) parseError(r io.Reader) error {
 }
 
 // applyDPoP 生成并添加 DPoP Header
-func (c *Client) applyDPoP(req *http.Request) error {
+// accessToken: 如果是访问受保护资源，需要传入 Access Token 以计算 ath 声明
+func (c *Client) applyDPoP(req *http.Request, accessToken ...string) error {
 	if c.dpopKey == nil {
 		return nil
 	}
@@ -527,22 +586,29 @@ func (c *Client) applyDPoP(req *http.Request) error {
 	pubKey := c.dpopKey.Public()
 
 	// 转换为 JWK
-	// 注意：DPoP 要求 JWK 不包含 kid, alg 等，只包含 key 参数
-	// PublicKeyToJWK 生成了完整的结构，我们需要转成 map 并剔除多余字段
-	// 这里直接复用生成逻辑，但在 Header 中只放必要的
 	jwkObj, err := oidc.PublicKeyToJWK(pubKey, "", "")
 	if err != nil {
 		return err
 	}
 
-	// 手动构建 map 以完全控制字段
+	// 手动构建 map 以完全控制字段 (RFC 7638 Thumbprint 必需字段)
 	jwkMap := make(map[string]interface{})
 	jwkMap["kty"] = jwkObj.Kty
-	jwkMap["crv"] = jwkObj.Crv
-	jwkMap["x"] = jwkObj.X
-	jwkMap["y"] = jwkObj.Y
-	jwkMap["n"] = jwkObj.N
-	jwkMap["e"] = jwkObj.E
+	if jwkObj.Crv != "" {
+		jwkMap["crv"] = jwkObj.Crv
+	}
+	if jwkObj.X != "" {
+		jwkMap["x"] = jwkObj.X
+	}
+	if jwkObj.Y != "" {
+		jwkMap["y"] = jwkObj.Y
+	}
+	if jwkObj.N != "" {
+		jwkMap["n"] = jwkObj.N
+	}
+	if jwkObj.E != "" {
+		jwkMap["e"] = jwkObj.E
+	}
 
 	// 构建 Claims
 	now := time.Now()
@@ -558,13 +624,29 @@ func (c *Client) applyDPoP(req *http.Request) error {
 		"jti": jti,
 	}
 
-	// 签名
+	// 添加 ath (Access Token Hash)
+	if len(accessToken) > 0 && accessToken[0] != "" {
+		hash := sha256.Sum256([]byte(accessToken[0]))
+		claims["ath"] = base64.RawURLEncoding.EncodeToString(hash[:])
+	}
+
+	// 添加 nonce (如果服务器之前返回过)
+	c.mu.RLock()
+	nonce := c.dpopNonce
+	c.mu.RUnlock()
+	if nonce != "" {
+		claims["nonce"] = nonce
+	}
+
+	// 确定签名方法
 	var method jwt.SigningMethod
 	switch c.dpopKey.(type) {
 	case *ecdsa.PrivateKey:
 		method = jwt.SigningMethodES256
 	case *rsa.PrivateKey:
 		method = jwt.SigningMethodRS256
+	default:
+		return fmt.Errorf("unsupported DPoP key type")
 	}
 
 	token := jwt.NewWithClaims(method, claims)
@@ -578,4 +660,14 @@ func (c *Client) applyDPoP(req *http.Request) error {
 
 	req.Header.Set("DPoP", proof)
 	return nil
+}
+
+// setDPoPNonce 更新内部存储的 DPoP Nonce
+func (c *Client) setDPoPNonce(nonce string) {
+	if nonce == "" {
+		return
+	}
+	c.mu.Lock()
+	c.dpopNonce = nonce
+	c.mu.Unlock()
 }

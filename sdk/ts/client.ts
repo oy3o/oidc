@@ -38,6 +38,7 @@ export interface DiscoveryDocument {
     introspection_endpoint: string;
     device_authorization_endpoint: string;
     pushed_authorization_request_endpoint?: string;
+    end_session_endpoint?: string;
 }
 
 export interface DeviceAuthorizationResponse {
@@ -57,6 +58,7 @@ export class OIDCClient {
     private discovery?: DiscoveryDocument;
     private dpopPrivateKey?: jose.KeyLike;
     private dpopPublicKey?: jose.KeyLike;
+    private dpopNonce?: string;
 
     constructor(config: ClientConfig) {
         this.config = config;
@@ -179,6 +181,22 @@ export class OIDCClient {
     }
 
     /**
+     * RESOURCE OWNER PASSWORD CREDENTIALS GRANT
+     * 仅用于受信任的应用或测试环境
+     */
+    async exchangePassword(username: string, password: string, scope?: string[]): Promise<TokenResponse> {
+        const params = new URLSearchParams();
+        params.append('grant_type', 'password');
+        params.append('username', username);
+        params.append('password', password);
+        const finalScopes = scope || this.config.scopes;
+        if (finalScopes) {
+            params.append('scope', finalScopes.join(' '));
+        }
+        return this.doTokenRequest(params);
+    }
+
+    /**
      * 客户端凭证模式 (M2M) - 仅限服务端使用
      */
     async exchangeClientCredentials(scope?: string[]): Promise<TokenResponse> {
@@ -242,6 +260,7 @@ export class OIDCClient {
                     });
 
                     const data = await response.json();
+                    this.captureDPoPNonce(response);
 
                     if (response.ok) {
                         resolve(data);
@@ -253,7 +272,7 @@ export class OIDCClient {
                     } else if (data.error === 'slow_down') {
                         setTimeout(check, (intervalSeconds + 5) * 1000);
                     } else {
-                        reject(new Error(data.error));
+                        reject(new Error(data.error_description || data.error));
                     }
                 } catch (e) {
                     reject(e);
@@ -282,7 +301,8 @@ export class OIDCClient {
         }
 
         const response = await fetch(endpoint, { headers });
-        return this.handleResponse(response);
+        const data = await this.handleResponse(response);
+        return data;
     }
 
     async revoke(token: string, hint?: 'access_token' | 'refresh_token'): Promise<void> {
@@ -293,11 +313,12 @@ export class OIDCClient {
         if (hint) params.append('token_type_hint', hint);
 
         const headers = await this.buildHeaders('POST', endpoint);
-        await fetch(endpoint, {
+        const response = await fetch(endpoint, {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded', ...headers },
             body: params.toString()
         });
+        await this.handleResponse(response);
     }
 
     async introspect(token: string): Promise<{ active: boolean;[key: string]: any }> {
@@ -318,6 +339,19 @@ export class OIDCClient {
     // ===========================================================================
     // Internal Helpers
     // ===========================================================================
+
+    /**
+     * 生成 OIDC RP-Initiated Logout URL
+     */
+    logoutURL(idTokenHint?: string, postLogoutRedirectUri?: string, state?: string): string {
+        if (!this.discovery?.end_session_endpoint) return '';
+        const params = new URLSearchParams();
+        if (idTokenHint) params.append('id_token_hint', idTokenHint);
+        if (postLogoutRedirectUri) params.append('post_logout_redirect_uri', postLogoutRedirectUri);
+        if (state) params.append('state', state);
+
+        return `${this.discovery.end_session_endpoint}${this.discovery.end_session_endpoint.includes('?') ? '&' : '?'}${params.toString()}`;
+    }
 
     private checkDiscovery() {
         if (!this.discovery) throw new Error('OIDC Discovery not initialized. Call discover() first.');
@@ -404,7 +438,8 @@ export class OIDCClient {
             htm: method,
             htu: htu,
             jti: crypto.randomUUID(),
-            ath: ath
+            ath: ath,
+            nonce: this.dpopNonce
         })
             .setProtectedHeader({
                 alg: 'ES256',
@@ -418,12 +453,20 @@ export class OIDCClient {
     }
 
     private async handleResponse(response: Response): Promise<any> {
+        this.captureDPoPNonce(response);
         const data = await response.json();
         if (!response.ok) {
             const errorMsg = data.error_description || data.error || response.statusText;
             throw new Error(`OIDC Error: ${errorMsg}`);
         }
         return data;
+    }
+
+    private captureDPoPNonce(response: Response) {
+        const nonce = response.headers.get('DPoP-Nonce');
+        if (nonce) {
+            this.dpopNonce = nonce;
+        }
     }
 
     // Utils

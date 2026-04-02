@@ -60,6 +60,8 @@ func AuthenticateClient(ctx context.Context, storage ClientStorage, clientIDStr,
 	// 验证 Secret (仅针对机密客户端)
 	if client.IsConfidential() {
 		if clientSecret == "" {
+			// [安全] 执行虚拟哈希比较以防止基于计时差异的客户端枚举攻击
+			_ = hasher.DummyCompare(ctx)
 			return nil, fmt.Errorf("%w: invalid client", ErrInvalidClient)
 		}
 		if err := client.ValidateSecret(ctx, hasher, clientSecret); err != nil {

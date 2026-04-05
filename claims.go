@@ -186,6 +186,11 @@ func ValidateStructuredRefreshToken(ctx context.Context, sm *SecretManager, toke
 
 	// 1. 验证签名 (CPU 操作，极快)
 	payload := parts[0] + "." + parts[1] + "." + parts[2]
+
+	// Prevent CPU exhaustion DoS by checking input length before decoding
+	if len(parts[3]) > 1024 {
+		return ErrTokenFormatInvalid
+	}
 	providedSig, err := base64.RawURLEncoding.DecodeString(parts[3])
 	if err != nil {
 		return ErrTokenFormatInvalid
@@ -205,6 +210,9 @@ func ValidateStructuredRefreshToken(ctx context.Context, sm *SecretManager, toke
 	}
 
 	// 2. 验证过期 (CPU 操作)
+	if len(parts[1]) > 1024 {
+		return ErrTokenFormatInvalid
+	}
 	metaJson, err := base64.RawURLEncoding.DecodeString(parts[1])
 	if err != nil {
 		return ErrTokenFormatInvalid

@@ -59,7 +59,10 @@ func AuthenticateClient(ctx context.Context, storage ClientStorage, clientIDStr,
 
 	// 验证 Secret (仅针对机密客户端)
 	if client.IsConfidential() {
-		if clientSecret == "" {
+		// 为了防止耗尽 CPU 资源（DoS 攻击），限制密码长度。
+		// 同时使用 DummyCompare 来掩盖空密码或长度超限的情况，防止客户端枚举。
+		if clientSecret == "" || len(clientSecret) > 512 {
+			_ = hasher.DummyCompare(ctx)
 			return nil, fmt.Errorf("%w: invalid client", ErrInvalidClient)
 		}
 		if err := client.ValidateSecret(ctx, hasher, clientSecret); err != nil {

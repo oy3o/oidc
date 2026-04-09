@@ -135,6 +135,10 @@ func ParseECDSAPublicKeyFromJWK(jwk *JSONWebKey) (*ecdsa.PublicKey, error) {
 		return nil, ErrUnsupportedCurve
 	}
 
+	if len(jwk.X) > 1024 || len(jwk.Y) > 1024 {
+		return nil, ErrInvalidRequest
+	}
+
 	xBytes, err := base64.RawURLEncoding.DecodeString(jwk.X)
 	if err != nil {
 		return nil, err
@@ -154,6 +158,10 @@ func ParseECDSAPublicKeyFromJWK(jwk *JSONWebKey) (*ecdsa.PublicKey, error) {
 func ParseRSAPublicKeyFromJWK(jwk *JSONWebKey) (*rsa.PublicKey, error) {
 	if jwk.Kty != "RSA" {
 		return nil, ErrKeyNotRSA
+	}
+
+	if len(jwk.N) > 8192 || len(jwk.E) > 1024 {
+		return nil, ErrInvalidRequest
 	}
 
 	nBytes, err := base64.RawURLEncoding.DecodeString(jwk.N)
@@ -176,6 +184,11 @@ func ParseEd25519PublicKeyFromJWK(jwk *JSONWebKey) (ed25519.PublicKey, error) {
 	if jwk.Kty != "OKP" || jwk.Crv != "Ed25519" {
 		return nil, ErrKeyNotEd25519
 	}
+
+	if len(jwk.X) > 1024 {
+		return nil, ErrInvalidRequest
+	}
+
 	xBytes, err := base64.RawURLEncoding.DecodeString(jwk.X)
 	if err != nil {
 		return nil, err

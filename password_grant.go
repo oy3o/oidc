@@ -18,6 +18,7 @@ import (
 func PasswordGrant(ctx context.Context, storage Storage, hasher Hasher, issuer *Issuer, req *TokenRequest) (*IssuerResponse, error) {
 	// 1. 认证客户端, 对于密码授权，客户端必须是机密的
 	if req.ClientSecret == "" {
+		_ = hasher.DummyCompare(ctx)
 		return nil, fmt.Errorf("%w: client_secret is required", ErrInvalidRequest)
 	}
 

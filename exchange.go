@@ -60,6 +60,7 @@ func AuthenticateClient(ctx context.Context, storage ClientStorage, clientIDStr,
 	// 验证 Secret (仅针对机密客户端)
 	if client.IsConfidential() {
 		if clientSecret == "" {
+			_ = hasher.DummyCompare(ctx)
 			return nil, fmt.Errorf("%w: invalid client", ErrInvalidClient)
 		}
 		if err := client.ValidateSecret(ctx, hasher, clientSecret); err != nil {
@@ -302,6 +303,7 @@ func ExchangeClientCredentials(ctx context.Context, storage ClientStorage, hashe
 	// 1. Client 认证
 	// 此模式下 Client 必须存在且必须验证 Secret (本质就是 Confidential Client)
 	if req.ClientSecret == "" {
+		_ = hasher.DummyCompare(ctx)
 		return nil, fmt.Errorf("%w: client_secret is required", ErrInvalidClient)
 	}
 

@@ -12,3 +12,7 @@
 **Vulnerability:** When decoding Base64 strings in `ValidateStructuredRefreshToken`, `base64.RawURLEncoding.DecodeString` errors were ignored. This could cause invalid data to be passed to MAC verification and could also open vectors for CPU/memory DoS via excessively large inputs.
 **Learning:** Always handle errors from Base64 decoding to prevent operating on corrupted, empty, or nil byte slices which could lead to panics or authentication bypass. Furthermore, cryptographic and parsing operations (like hash checking or JSON decoding) should not process unbounded input lengths to prevent resource exhaustion.
 **Prevention:** Enforce input length bounds (e.g., maximum token length) *before* decoding strings and *always* check for and gracefully handle `err` returned by `DecodeString` routines.
+## 2026-04-11 - [Client ID Enumeration via Timing Leak]
+**Vulnerability:** In `exchange.go`, when authenticating a confidential client with an empty secret, the function returned immediately. This created a timing leak where valid confidential clients with empty secrets failed faster than valid clients with invalid secrets, potentially allowing attackers to enumerate valid client IDs.
+**Learning:** Security validation flows must maintain constant-time execution paths even for trivial early exits (like empty secrets) to prevent enumeration attacks, especially in authentication logic.
+**Prevention:** Ensure dummy cryptographic operations (like `DummyCompare`) are executed in all early-exit branches of authentication logic to equalize response times.

@@ -69,8 +69,14 @@ func PublicKeyToJWK(pub crypto.PublicKey, kid, alg string) (JSONWebKey, error) {
 				jwk.Crv = "P-521"
 			}
 		}
-		jwk.X = base64.RawURLEncoding.EncodeToString(k.X.Bytes())
-		jwk.Y = base64.RawURLEncoding.EncodeToString(k.Y.Bytes())
+
+		byteLen := (params.BitSize + 7) / 8
+		xBytes := make([]byte, byteLen)
+		yBytes := make([]byte, byteLen)
+		k.X.FillBytes(xBytes)
+		k.Y.FillBytes(yBytes)
+		jwk.X = base64.RawURLEncoding.EncodeToString(xBytes)
+		jwk.Y = base64.RawURLEncoding.EncodeToString(yBytes)
 
 	case ed25519.PublicKey:
 		jwk.Kty = "OKP" // Octet Key Pair

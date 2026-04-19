@@ -23,7 +23,13 @@ func (r OidcResponse) WriteResponse(w http.ResponseWriter, req *http.Request) {
 	// 1. Content-Type 总是 JSON
 	header.Set("Content-Type", "application/json;charset=UTF-8")
 
-	// 2. Cache Control
+	// 2. Security Headers (Defense in Depth)
+	header.Set("X-Content-Type-Options", "nosniff")
+	header.Set("X-Frame-Options", "DENY")
+	header.Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+	header.Set("Content-Security-Policy", "default-src 'none'")
+
+	// 3. Cache Control
 	if r.NoCache {
 		header.Set("Cache-Control", "no-store")
 		header.Set("Pragma", "no-cache")
@@ -32,26 +38,26 @@ func (r OidcResponse) WriteResponse(w http.ResponseWriter, req *http.Request) {
 		header.Set("Cache-Control", "public, max-age=3600")
 	}
 
-	// 3. CORS (Cross-Origin Resource Sharing)
+	// 4. CORS (Cross-Origin Resource Sharing)
 	if r.Cors {
 		header.Set("Access-Control-Allow-Origin", "*")
 		header.Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 		header.Set("Access-Control-Allow-Headers", "Content-Type")
 	}
 
-	// 4. Custom Headers
+	// 5. Custom Headers
 	for k, v := range r.Headers {
 		header.Set(k, v)
 	}
 
-	// 5. Status Code
+	// 6. Status Code
 	status := r.Status
 	if status == 0 {
 		status = http.StatusOK
 	}
 	w.WriteHeader(status)
 
-	// 6. Body
+	// 7. Body
 	if r.Data != nil {
 		// 使用 sonic 极速编码，错误交由 httpx 框架层监控
 		_ = sonic.ConfigDefault.NewEncoder(w).Encode(r.Data)

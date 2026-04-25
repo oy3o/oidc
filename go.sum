@@ -110,6 +110,8 @@ github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 h1:C3w9PqII01/Oq
 github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822/go.mod h1:+n7T8mK8HuQTcFwEeznm/DIxMOiR9yIdICNftLE1DvQ=
 github.com/oy3o/httpx v1.5.11 h1:e/GOCjrdNl7oNEss63f+CQT1EcyrbD3iCWWA45B3gAQ=
 github.com/oy3o/httpx v1.5.11/go.mod h1:K9OQg659qDZ9mATdDbVnU/OO0WLoebr1r75SRv9hEj0=
+github.com/oy3o/o11y v1.4.1 h1:WrX4g0wpgriRQD09OHHWTTGoKj0hJDT3aFfckk9/ju4=
+github.com/oy3o/o11y v1.4.1/go.mod h1:DUjV42UdN0YyKpUyYaoaN35R/kLREJGkhEdw2jAL1cQ=
 github.com/oy3o/o11y v1.5.0 h1:cM1kDKHkMcC5Sg44sAmQJ/VlMp31s+KJ8EJE83yWQBY=
 github.com/oy3o/o11y v1.5.0/go.mod h1:l83ejtjhUec0XK3iTPc+nINMC1YMdIAqvPMdu+G2JWE=
 github.com/oy3o/singleflight v1.0.7 h1:6Pwj70M2lMTm0T3R8jCsFt8Wa9NqeHHoiL7CzOoF+0Y=

@@ -11,4 +11,7 @@
 ## 2026-03-20 - [Base64 Decoding Unhandled Error and Token Length Limits]
 **Vulnerability:** When decoding Base64 strings in `ValidateStructuredRefreshToken`, `base64.RawURLEncoding.DecodeString` errors were ignored. This could cause invalid data to be passed to MAC verification and could also open vectors for CPU/memory DoS via excessively large inputs.
 **Learning:** Always handle errors from Base64 decoding to prevent operating on corrupted, empty, or nil byte slices which could lead to panics or authentication bypass. Furthermore, cryptographic and parsing operations (like hash checking or JSON decoding) should not process unbounded input lengths to prevent resource exhaustion.
-**Prevention:** Enforce input length bounds (e.g., maximum token length) *before* decoding strings and *always* check for and gracefully handle `err` returned by `DecodeString` routines.
+**Prevention:** Enforce input length bounds (e.g., maximum token length) *before* decoding strings and *always* check for and gracefully handle `err` returned by `DecodeString` routines.## 2024-05-02 - Fix Timing Attack Vulnerability in AuthenticateClient
+**Vulnerability:** Timing attack vulnerability in `AuthenticateClient` when handling confidential clients with an empty `clientSecret`.
+**Learning:** Returning early on empty `clientSecret` before performing hash comparisons can allow attackers to distinguish between an empty secret and an invalid secret based on response times, facilitating enumeration or other attacks.
+**Prevention:** Perform a dummy hashing operation (`hasher.DummyCompare`) whenever a real hash comparison is skipped due to an empty or missing secret to ensure near constant-time responses.

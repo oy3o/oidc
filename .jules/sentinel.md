@@ -12,3 +12,7 @@
 **Vulnerability:** When decoding Base64 strings in `ValidateStructuredRefreshToken`, `base64.RawURLEncoding.DecodeString` errors were ignored. This could cause invalid data to be passed to MAC verification and could also open vectors for CPU/memory DoS via excessively large inputs.
 **Learning:** Always handle errors from Base64 decoding to prevent operating on corrupted, empty, or nil byte slices which could lead to panics or authentication bypass. Furthermore, cryptographic and parsing operations (like hash checking or JSON decoding) should not process unbounded input lengths to prevent resource exhaustion.
 **Prevention:** Enforce input length bounds (e.g., maximum token length) *before* decoding strings and *always* check for and gracefully handle `err` returned by `DecodeString` routines.
+## 2024-05-20 - [Timing Attack / Client Enumeration via Empty Secret]
+**Vulnerability:** In `AuthenticateClient`, when a valid confidential client was queried with an empty `clientSecret`, the function immediately returned an error.
+**Learning:** This early return created a timing difference compared to requests with invalid client IDs (which perform a dummy comparison) or valid secrets (which perform a real hash comparison). Attackers could use this timing difference to enumerate valid confidential client IDs by sending empty secrets.
+**Prevention:** Always perform a `DummyCompare` when returning early due to an empty secret for an existing confidential client, ensuring response times remain consistent and preventing enumeration.

@@ -476,6 +476,14 @@ func TestExchange_ClientCredentials_InvalidSecret(t *testing.T) {
 
 	_, err := server.Exchange(ctx, req)
 	assert.ErrorIs(t, err, oidc.ErrInvalidClient)
+
+	reqEmpty := &oidc.TokenRequest{
+		GrantType:    "client_credentials",
+		ClientID:     client.GetID().String(),
+		ClientSecret: "",
+	}
+	_, errEmpty := server.Exchange(ctx, reqEmpty)
+	assert.ErrorIs(t, errEmpty, oidc.ErrInvalidClient)
 }
 
 func TestExchange_UnsupportedGrantType(t *testing.T) {

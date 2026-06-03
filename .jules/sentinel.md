@@ -12,3 +12,8 @@
 **Vulnerability:** When decoding Base64 strings in `ValidateStructuredRefreshToken`, `base64.RawURLEncoding.DecodeString` errors were ignored. This could cause invalid data to be passed to MAC verification and could also open vectors for CPU/memory DoS via excessively large inputs.
 **Learning:** Always handle errors from Base64 decoding to prevent operating on corrupted, empty, or nil byte slices which could lead to panics or authentication bypass. Furthermore, cryptographic and parsing operations (like hash checking or JSON decoding) should not process unbounded input lengths to prevent resource exhaustion.
 **Prevention:** Enforce input length bounds (e.g., maximum token length) *before* decoding strings and *always* check for and gracefully handle `err` returned by `DecodeString` routines.
+
+## 2024-06-03 - [Timing Oracle in AuthenticateClient via Empty Secret]
+**Vulnerability:** In `exchange.go`, if `clientSecret` is empty for a confidential client, the function returned early without performing a dummy hash comparison. An attacker could use this timing difference to enumerate valid client IDs by observing faster responses for valid clients with empty secrets versus invalid clients (which trigger `DummyCompare`).
+**Learning:** When validating input that occurs *after* a database lookup, returning early without a dummy operation creates a timing oracle. Validating the secret structure or presence should either occur before the database lookup, or be paired with a constant-time mitigation.
+**Prevention:** Always pair input validation failures (like an empty secret) that occur after a database lookup with a dummy cryptographic operation (e.g., `DummyCompare`) before returning to ensure constant-time responses.

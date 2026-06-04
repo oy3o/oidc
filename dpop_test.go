@@ -83,7 +83,7 @@ func TestVerifyDPoPProof_Valid(t *testing.T) {
 	req.Header.Set("DPoP", proof)
 	w := httptest.NewRecorder()
 
-	jkt, err := oidc.VerifyDPoPProof(ctx, req, w, storage, htm, htu)
+	_, jkt, err := oidc.VerifyDPoPProof(ctx, req, w, storage, htm, htu)
 	require.NoError(t, err)
 	assert.NotEmpty(t, jkt)
 
@@ -109,11 +109,11 @@ func TestVerifyDPoPProof_Replay(t *testing.T) {
 	req.Header.Set("DPoP", proof)
 
 	// 第一次：成功
-	_, err := oidc.VerifyDPoPProof(ctx, req, nil, storage, htm, htu)
+	_, _, err := oidc.VerifyDPoPProof(ctx, req, nil, storage, htm, htu)
 	require.NoError(t, err)
 
 	// 第二次：失败 (Replay)
-	_, err = oidc.VerifyDPoPProof(ctx, req, nil, storage, htm, htu)
+	_, _, err = oidc.VerifyDPoPProof(ctx, req, nil, storage, htm, htu)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "jti has been used")
 }
@@ -157,7 +157,7 @@ func TestVerifyDPoPProof_TimeSkew(t *testing.T) {
 			req := httptest.NewRequest(htm, htu, nil)
 			req.Header.Set("DPoP", proof)
 
-			_, err := oidc.VerifyDPoPProof(ctx, req, nil, storage, htm, htu)
+			_, _, err := oidc.VerifyDPoPProof(ctx, req, nil, storage, htm, htu)
 			if tt.wantError != "" {
 				assert.Error(t, err)
 				assert.Contains(t, err.Error(), tt.wantError)
@@ -179,7 +179,7 @@ func TestVerifyDPoPProof_MethodMismatch(t *testing.T) {
 	req := httptest.NewRequest("POST", htu, nil)
 	req.Header.Set("DPoP", proof)
 
-	_, err := oidc.VerifyDPoPProof(ctx, req, nil, storage, "POST", htu)
+	_, _, err := oidc.VerifyDPoPProof(ctx, req, nil, storage, "POST", htu)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "htm mismatch")
 }
@@ -195,7 +195,7 @@ func TestVerifyDPoPProof_URIMismatch(t *testing.T) {
 	req := httptest.NewRequest(htm, "https://example.com/other", nil)
 	req.Header.Set("DPoP", proof)
 
-	_, err := oidc.VerifyDPoPProof(ctx, req, nil, storage, htm, "https://example.com/other")
+	_, _, err := oidc.VerifyDPoPProof(ctx, req, nil, storage, htm, "https://example.com/other")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "htu mismatch")
 }
@@ -240,7 +240,7 @@ func TestVerifyDPoPProof_InvalidHeader(t *testing.T) {
 			req := httptest.NewRequest(htm, htu, nil)
 			req.Header.Set("DPoP", proof)
 
-			_, err := oidc.VerifyDPoPProof(ctx, req, nil, storage, htm, htu)
+			_, _, err := oidc.VerifyDPoPProof(ctx, req, nil, storage, htm, htu)
 			assert.Error(t, err)
 			assert.Contains(t, err.Error(), tt.wantError)
 		})
@@ -331,7 +331,7 @@ func TestVerifyDPoPProof_RejectsSymmetricKeys(t *testing.T) {
 	req := httptest.NewRequest(htm, htu, nil)
 	req.Header.Set("DPoP", proof)
 
-	_, err = oidc.VerifyDPoPProof(ctx, req, nil, mockCache, htm, htu)
+	_, _, err = oidc.VerifyDPoPProof(ctx, req, nil, mockCache, htm, htu)
 
 	assert.Error(t, err)
 	if err != nil {

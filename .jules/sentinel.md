@@ -12,3 +12,7 @@
 **Vulnerability:** When decoding Base64 strings in `ValidateStructuredRefreshToken`, `base64.RawURLEncoding.DecodeString` errors were ignored. This could cause invalid data to be passed to MAC verification and could also open vectors for CPU/memory DoS via excessively large inputs.
 **Learning:** Always handle errors from Base64 decoding to prevent operating on corrupted, empty, or nil byte slices which could lead to panics or authentication bypass. Furthermore, cryptographic and parsing operations (like hash checking or JSON decoding) should not process unbounded input lengths to prevent resource exhaustion.
 **Prevention:** Enforce input length bounds (e.g., maximum token length) *before* decoding strings and *always* check for and gracefully handle `err` returned by `DecodeString` routines.
+## 2026-06-07 - [Unbounded DPoP Header Parsing (DoS)]
+**Vulnerability:** DPoP headers are parsed as JWTs using `jwt.ParseWithClaims`. Without a length limit, excessively large DPoP headers could cause CPU and memory exhaustion (DoS).
+**Learning:** Cryptographic and parsing operations must enforce strict length limits on inputs before processing to prevent resource exhaustion attacks.
+**Prevention:** Always check the length of potentially malicious string/byte inputs (e.g., maximum 4096 bytes for DPoP headers) *before* passing them to decoding or parsing functions.

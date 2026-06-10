@@ -51,11 +51,14 @@ func VerifyDPoPProof(
 	w http.ResponseWriter,
 	cache ReplayCache,
 	httpMethod, httpURI string,
-) (jkt string, err error) {
+) (proof *DPoPProof, jkt string, err error) {
 	// 1. 提取 DPoP header
 	dpopHeader := req.Header.Get("DPoP")
 	if dpopHeader == "" {
-		return "", fmt.Errorf("%w: missing DPoP header", ErrInvalidRequest)
+		return nil, "", fmt.Errorf("%w: missing DPoP header", ErrInvalidRequest)
+	}
+	if len(dpopHeader) > 4096 {
+		return nil, "", fmt.Errorf("%w: DPoP header too long", ErrInvalidRequest)
 	}
 
 	// 2. 解析 JWT (先不验证签名，需要从 header 提取公钥)
@@ -86,39 +89,39 @@ func VerifyDPoPProof(
 		return pubKey, nil
 	})
 	if err != nil {
-		return "", fmt.Errorf("%w: failed to parse DPoP proof: %v", ErrInvalidRequest, err)
+		return nil, "", fmt.Errorf("%w: failed to parse DPoP proof: %v", ErrInvalidRequest, err)
 	}
 
 	if !token.Valid {
-		return "", fmt.Errorf("%w: invalid DPoP proof", ErrInvalidRequest)
+		return nil, "", fmt.Errorf("%w: invalid DPoP proof", ErrInvalidRequest)
 	}
 
 	// 3. 验证 typ header (必须是 "dpop+jwt")
 	typ, ok := token.Header["typ"].(string)
 	if !ok || typ != "dpop+jwt" {
-		return "", fmt.Errorf("%w: DPoP typ must be 'dpop+jwt'", ErrInvalidRequest)
+		return nil, "", fmt.Errorf("%w: DPoP typ must be 'dpop+jwt'", ErrInvalidRequest)
 	}
 
 	// 4. 验证 alg (不能是 'none')
 	alg, ok := token.Header["alg"].(string)
 	if !ok || alg == "none" {
-		return "", fmt.Errorf("%w: token signature is invalid, DPoP alg cannot be 'none'", ErrInvalidRequest)
+		return nil, "", fmt.Errorf("%w: token signature is invalid, DPoP alg cannot be 'none'", ErrInvalidRequest)
 	}
 
 	// 5. 验证 htm 和 htu
 	if claims.HTM != httpMethod {
-		return "", fmt.Errorf("%w: DPoP htm mismatch: expected %s, got %s",
+		return nil, "", fmt.Errorf("%w: DPoP htm mismatch: expected %s, got %s",
 			ErrInvalidRequest, httpMethod, claims.HTM)
 	}
 
 	if claims.HTU != httpURI {
-		return "", fmt.Errorf("%w: DPoP htu mismatch: expected %s, got %s",
+		return nil, "", fmt.Errorf("%w: DPoP htu mismatch: expected %s, got %s",
 			ErrInvalidRequest, httpURI, claims.HTU)
 	}
 
 	// 6. 验证 iat 时间窗口 (±60秒)
 	if claims.IssuedAt == nil {
-		return "", fmt.Errorf("%w: DPoP proof missing iat claim", ErrInvalidRequest)
+		return nil, "", fmt.Errorf("%w: DPoP proof missing iat claim", ErrInvalidRequest)
 	}
 
 	now := time.Now()
@@ -136,7 +139,7 @@ func VerifyDPoPProof(
 		// SetServerTimeHeader(w)
 
 		// 返回详细的时间信息（仅用于内部日志，不暴露给客户端）
-		return "", &DPoPTimeSkewError{
+		return nil, "", &DPoPTimeSkewError{
 			Info: DPoPTimeSkewInfo{
 				ServerTime: now,
 				ClientTime: iat,
@@ -148,27 +151,27 @@ func VerifyDPoPProof(
 
 	// 7. 验证 jti 防重放
 	if claims.ID == "" {
-		return "", fmt.Errorf("%w: DPoP proof missing jti claim", ErrInvalidRequest)
+		return nil, "", fmt.Errorf("%w: DPoP proof missing jti claim", ErrInvalidRequest)
 	}
 
 	// 检查并存储 JTI (TTL 为 DPoP proof 的有效期 + 宽限时间)
 	ttl := 120 * time.Second // 60秒有效期 + 60秒宽限
 	isReplay, err := cache.CheckAndStore(ctx, claims.ID, ttl)
 	if err != nil {
-		return "", fmt.Errorf("failed to check DPoP replay: %w", err)
+		return nil, "", fmt.Errorf("failed to check DPoP replay: %w", err)
 	}
 	if isReplay {
-		return "", fmt.Errorf("%w: DPoP proof jti has been used", ErrInvalidRequest)
+		return nil, "", fmt.Errorf("%w: DPoP proof jti has been used", ErrInvalidRequest)
 	}
 
 	// 8. 计算 JKT (JWK Thumbprint)
 	jwkMap := token.Header["jwk"].(map[string]interface{})
 	jkt, err = ComputeJKT(jwkMap)
 	if err != nil {
-		return "", fmt.Errorf("failed to compute JKT: %w", err)
+		return nil, "", fmt.Errorf("failed to compute JKT: %w", err)
 	}
 
-	return jkt, nil
+	return &claims, jkt, nil
 }
 
 // ComputeJKT 计算 JWK Thumbprint (RFC 7638)

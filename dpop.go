@@ -58,6 +58,11 @@ func VerifyDPoPProof(
 		return "", fmt.Errorf("%w: missing DPoP header", ErrInvalidRequest)
 	}
 
+	// Prevent CPU/memory exhaustion (DoS) attacks by enforcing a strict length limit
+	if len(dpopHeader) > 4096 {
+		return "", fmt.Errorf("%w: DPoP header too large", ErrInvalidRequest)
+	}
+
 	// 2. 解析 JWT (先不验证签名，需要从 header 提取公钥)
 	var claims DPoPProof
 	token, err := jwt.ParseWithClaims(dpopHeader, &claims, func(token *jwt.Token) (interface{}, error) {

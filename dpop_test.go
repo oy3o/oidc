@@ -338,3 +338,20 @@ func TestVerifyDPoPProof_RejectsSymmetricKeys(t *testing.T) {
 		assert.Contains(t, err.Error(), "symmetric keys (oct) are not allowed")
 	}
 }
+
+func TestVerifyDPoPProof_TooLarge(t *testing.T) {
+	ctx := context.Background()
+	storage, _ := NewTestStorage(t)
+	htm, htu := "POST", "https://example.com/token"
+
+	req := httptest.NewRequest(htm, htu, nil)
+	largeHeader := make([]byte, 4097)
+	for i := range largeHeader {
+		largeHeader[i] = 'a'
+	}
+	req.Header.Set("DPoP", string(largeHeader))
+
+	_, err := oidc.VerifyDPoPProof(ctx, req, nil, storage, htm, htu)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "DPoP header too large")
+}

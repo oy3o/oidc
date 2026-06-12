@@ -231,11 +231,11 @@ func TestDPoP_ReplayProtection(t *testing.T) {
 	req.Header.Set("DPoP", proof)
 
 	// 第一次验证：应该成功
-	_, err := oidc.VerifyDPoPProof(context.Background(), req, nil, storage, htm, htu)
+	_, _, err := oidc.VerifyDPoPProof(context.Background(), req, nil, storage, htm, htu)
 	require.NoError(t, err, "First use of DPoP proof should succeed")
 
 	// 第二次验证（重放）：应该失败
-	_, err = oidc.VerifyDPoPProof(context.Background(), req, nil, storage, htm, htu)
+	_, _, err = oidc.VerifyDPoPProof(context.Background(), req, nil, storage, htm, htu)
 	assert.Error(t, err, "Replay of DPoP proof should fail")
 	assert.Contains(t, err.Error(), "jti has been used")
 }

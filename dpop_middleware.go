@@ -7,7 +7,6 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/golang-jwt/jwt/v5"
 )
 
 // DPoPContext 是用于在 context 中传递 DPoP 验证结果的 key
@@ -49,7 +48,7 @@ func DPoPMiddleware(cache ReplayCache, required bool) func(http.Handler) http.Ha
 			httpURI := BuildRequestURI(r)
 
 			// 3. 验证 DPoP proof
-			jkt, err := VerifyDPoPProof(ctx, r, w, cache, r.Method, httpURI)
+			proof, jkt, err := VerifyDPoPProof(ctx, r, w, cache, r.Method, httpURI)
 			if err != nil {
 				// DPoP 验证失败
 				errMsg := fmt.Sprintf(`{"error":"invalid_dpop_proof","error_description":"%s"}`, err.Error())
@@ -57,14 +56,6 @@ func DPoPMiddleware(cache ReplayCache, required bool) func(http.Handler) http.Ha
 				return
 			}
 
-			var proof DPoPProof
-			if _, _, err := new(jwt.Parser).ParseUnverified(dpopHeader, &proof); err != nil {
-				errMsg := fmt.Sprintf(`{"error":"invalid_dpop_proof","error_description":"%s"}`, err.Error())
-				http.Error(w, errMsg, http.StatusUnauthorized)
-				return
-			}
-
-			// 4. 将 DPoP claims 存入 context
 			claims := &DPoPClaims{JKT: jkt, ATH: proof.ATH}
 			ctx = context.WithValue(ctx, DpopContextKey{}, claims)
 

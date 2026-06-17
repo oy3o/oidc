@@ -45,6 +45,12 @@ func DPoPMiddleware(cache ReplayCache, required bool) func(http.Handler) http.Ha
 				return
 			}
 
+			// 防止过长输入导致的 DoS 攻击
+			if len(dpopHeader) > 4096 {
+				http.Error(w, `{"error":"invalid_dpop_proof","error_description":"DPoP header too long"}`, http.StatusUnauthorized)
+				return
+			}
+
 			// 2. 构建完整的请求 URI (不含 query 和 fragment)
 			httpURI := BuildRequestURI(r)
 

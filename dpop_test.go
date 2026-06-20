@@ -200,6 +200,19 @@ func TestVerifyDPoPProof_URIMismatch(t *testing.T) {
 	assert.Contains(t, err.Error(), "htu mismatch")
 }
 
+func TestVerifyDPoPProof_OversizedHeader(t *testing.T) {
+	ctx := context.Background()
+	storage, _ := NewTestStorage(t)
+
+	req := httptest.NewRequest("POST", "https://example.com/token", nil)
+	largeHeader := string(make([]byte, 4097))
+	req.Header.Set("DPoP", largeHeader)
+
+	_, err := oidc.VerifyDPoPProof(ctx, req, nil, storage, "POST", "https://example.com/token")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "too large")
+}
+
 func TestVerifyDPoPProof_InvalidHeader(t *testing.T) {
 	ctx := context.Background()
 	storage, _ := NewTestStorage(t)

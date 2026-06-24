@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -245,6 +246,15 @@ func TestVerifyDPoPProof_InvalidHeader(t *testing.T) {
 			assert.Contains(t, err.Error(), tt.wantError)
 		})
 	}
+}
+
+func TestVerifyDPoPProof_HeaderTooLarge(t *testing.T) {
+	ctx := context.Background()
+	storage, _ := NewTestStorage(t)
+	req := httptest.NewRequest("POST", "https://example.com/token", nil)
+	req.Header.Set("DPoP", strings.Repeat("a", 5000)) // Create a header larger than 4096 bytes
+	_, err := oidc.VerifyDPoPProof(ctx, req, nil, storage, "POST", "https://example.com/token")
+	assert.ErrorContains(t, err, "DPoP header too large")
 }
 
 func TestComputeJKT(t *testing.T) {

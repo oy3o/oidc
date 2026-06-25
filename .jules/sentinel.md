@@ -12,3 +12,7 @@
 **Vulnerability:** When decoding Base64 strings in `ValidateStructuredRefreshToken`, `base64.RawURLEncoding.DecodeString` errors were ignored. This could cause invalid data to be passed to MAC verification and could also open vectors for CPU/memory DoS via excessively large inputs.
 **Learning:** Always handle errors from Base64 decoding to prevent operating on corrupted, empty, or nil byte slices which could lead to panics or authentication bypass. Furthermore, cryptographic and parsing operations (like hash checking or JSON decoding) should not process unbounded input lengths to prevent resource exhaustion.
 **Prevention:** Enforce input length bounds (e.g., maximum token length) *before* decoding strings and *always* check for and gracefully handle `err` returned by `DecodeString` routines.
+## 2026-06-25 - [DPoP Validation Bypass and DoS via ParseUnverified]
+**Vulnerability:** The DPoP middleware used `jwt.ParseUnverified` to extract the `ATH` claim after signature validation, and processed arbitrarily long DPoP headers.
+**Learning:** Using unverified parsing allows an attacker to alter the payload independently of the verified token, bypassing security checks. Unbounded input length limits open the door for DoS attacks during parsing.
+**Prevention:** Always rely on claims extracted by the verification function itself (`jwt.ParseWithClaims`), and enforce strict length limits on headers before processing.

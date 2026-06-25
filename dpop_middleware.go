@@ -7,7 +7,6 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/golang-jwt/jwt/v5"
 )
 
 // DPoPContext 是用于在 context 中传递 DPoP 验证结果的 key
@@ -37,7 +36,9 @@ func DPoPMiddleware(cache ReplayCache, required bool) func(http.Handler) http.Ha
 			if dpopHeader == "" {
 				if required {
 					// DPoP 是必需的但未提供
-					http.Error(w, `{"error":"invalid_dpop_proof","error_description":"DPoP header is required"}`, http.StatusUnauthorized)
+					w.Header().Set("Content-Type", "application/json;charset=UTF-8")
+					w.WriteHeader(http.StatusUnauthorized)
+					w.Write([]byte(`{"error":"invalid_dpop_proof","error_description":"DPoP header is required"}`))
 					return
 				}
 				// DPoP 是可选的，继续处理
@@ -49,22 +50,18 @@ func DPoPMiddleware(cache ReplayCache, required bool) func(http.Handler) http.Ha
 			httpURI := BuildRequestURI(r)
 
 			// 3. 验证 DPoP proof
-			jkt, err := VerifyDPoPProof(ctx, r, w, cache, r.Method, httpURI)
+			proof, jkt, err := VerifyDPoPProof(ctx, r, w, cache, r.Method, httpURI)
 			if err != nil {
 				// DPoP 验证失败
+				// 注意：不要使用 http.Error，它会覆盖 Content-Type 为 text/plain
+				w.Header().Set("Content-Type", "application/json;charset=UTF-8")
+				w.WriteHeader(http.StatusUnauthorized)
 				errMsg := fmt.Sprintf(`{"error":"invalid_dpop_proof","error_description":"%s"}`, err.Error())
-				http.Error(w, errMsg, http.StatusUnauthorized)
+				w.Write([]byte(errMsg))
 				return
 			}
 
-			var proof DPoPProof
-			if _, _, err := new(jwt.Parser).ParseUnverified(dpopHeader, &proof); err != nil {
-				errMsg := fmt.Sprintf(`{"error":"invalid_dpop_proof","error_description":"%s"}`, err.Error())
-				http.Error(w, errMsg, http.StatusUnauthorized)
-				return
-			}
-
-			// 4. 将 DPoP claims 存入 context
+			// 4. 将 DPoP claims 存入 context (使用验证后的 proof.ATH，而不是 ParseUnverified)
 			claims := &DPoPClaims{JKT: jkt, ATH: proof.ATH}
 			ctx = context.WithValue(ctx, DpopContextKey{}, claims)
 

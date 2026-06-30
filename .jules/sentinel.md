@@ -12,3 +12,8 @@
 **Vulnerability:** When decoding Base64 strings in `ValidateStructuredRefreshToken`, `base64.RawURLEncoding.DecodeString` errors were ignored. This could cause invalid data to be passed to MAC verification and could also open vectors for CPU/memory DoS via excessively large inputs.
 **Learning:** Always handle errors from Base64 decoding to prevent operating on corrupted, empty, or nil byte slices which could lead to panics or authentication bypass. Furthermore, cryptographic and parsing operations (like hash checking or JSON decoding) should not process unbounded input lengths to prevent resource exhaustion.
 **Prevention:** Enforce input length bounds (e.g., maximum token length) *before* decoding strings and *always* check for and gracefully handle `err` returned by `DecodeString` routines.
+
+## 2024-06-30 - [Insecure JWT Parsing and Missing Length Limits]
+**Vulnerability:** The application used `jwt.ParseUnverified` in multiple places (like `dpop_middleware.go` and `session_test.go`) instead of securely parsing claims with cryptographic signature verification. Additionally, unbounded input lengths for DPoP headers were accepted, posing a CPU/memory DoS risk.
+**Learning:** Using `ParseUnverified` bypasses JWT signature validation, allowing manipulated claims to be processed. Cryptographic inputs and network data must always have length limits to prevent DoS. Tests must accurately reflect secure practices by using validated claims (e.g., via `ParseWithClaims`).
+**Prevention:** Avoid `jwt.ParseUnverified` whenever possible. Always use `jwt.ParseWithClaims` with proper key verification. Enforce strict input length limits before cryptographic validation.

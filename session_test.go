@@ -263,9 +263,10 @@ func TestEndSession_BackchannelLogout(t *testing.T) {
 	select {
 	case token := <-logoutTokenChan:
 		// parse and verify the logout token
-		parser := jwt.NewParser()
 		claims := &oidc.LogoutTokenClaims{}
-		_, _, err := parser.ParseUnverified(token, claims)
+		_, err := jwt.ParseWithClaims(token, claims, func(token *jwt.Token) (interface{}, error) {
+			return server.KeyManager().GetKey(context.Background(), "")
+		})
 		require.NoError(t, err)
 		assert.Equal(t, "mock-session-id-123", claims.SessionID)
 		assert.NotNil(t, claims.Events)
